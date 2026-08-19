@@ -1,1 +1,1 @@
-# schmace-invuders
+# Schmace Invuders
