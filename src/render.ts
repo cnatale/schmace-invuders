@@ -28,6 +28,8 @@ const FONT: Record<string, string[]> = {
   ' ': ['000', '000', '000', '000', '000'],
   ':': ['0', '1', '0', '1', '0'],
   '|': ['1', '1', '1', '1', '1'],
+  '?': ['111', '001', '011', '000', '010'],
+  '=': ['000', '111', '000', '111', '000'],
   '0': ['111', '101', '101', '101', '111'],
   '1': ['010', '110', '010', '010', '111'],
   '2': ['111', '001', '111', '100', '111'],
@@ -39,6 +41,7 @@ const FONT: Record<string, string[]> = {
   '8': ['111', '101', '111', '101', '111'],
   '9': ['111', '101', '111', '001', '111'],
   A: ['010', '101', '111', '101', '101'],
+  B: ['110', '101', '110', '101', '110'],
   C: ['111', '100', '100', '100', '111'],
   D: ['110', '101', '101', '101', '110'],
   E: ['111', '100', '110', '100', '111'],
@@ -46,17 +49,23 @@ const FONT: Record<string, string[]> = {
   G: ['111', '100', '101', '101', '111'],
   H: ['101', '101', '111', '101', '101'],
   I: ['111', '010', '010', '010', '111'],
+  J: ['001', '001', '001', '101', '111'],
+  K: ['101', '101', '110', '101', '101'],
   L: ['100', '100', '100', '100', '111'],
   M: ['101', '111', '111', '101', '101'],
   N: ['101', '111', '111', '111', '101'],
   O: ['111', '101', '101', '101', '111'],
   P: ['111', '101', '111', '100', '100'],
+  Q: ['111', '101', '101', '111', '001'],
   R: ['110', '101', '110', '101', '101'],
   S: ['111', '100', '111', '001', '111'],
   T: ['111', '010', '010', '010', '010'],
   U: ['101', '101', '101', '101', '111'],
   V: ['101', '101', '101', '101', '010'],
   W: ['101', '101', '111', '111', '101'],
+  X: ['101', '101', '010', '101', '101'],
+  Y: ['101', '101', '010', '010', '010'],
+  Z: ['111', '001', '010', '100', '111'],
 };
 
 export function createRenderBuffers(): RenderBuffers {
@@ -77,7 +86,11 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
   buffers.logical.fill(0);
   // drawStars(buffers.logical, state);
 
-  if (state.mode === 'title') {
+  // The exit prompt is an overlay, so the screen behind it keeps rendering
+  // whatever the player was looking at when they asked to quit.
+  const backdrop = state.mode === 'exitConfirm' ? state.modeBeforeExitConfirm : state.mode;
+
+  if (backdrop === 'title') {
     drawCenteredText(buffers.logical, 'SCHMACE', 70, 3);
     drawCenteredText(buffers.logical, 'INVUDERS', 90, 3);
     drawCenteredText(buffers.logical, 'TAP TO START', 126, 2);
@@ -91,16 +104,35 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
     drawShots(buffers.logical, state.alienShots);
     drawBarriers(buffers.logical, state.barriers);
 
-    if (state.mode === 'waveClear') {
+    if (backdrop === 'waveClear') {
       drawCenteredText(buffers.logical, 'WAVE CLEAR', 101, 2);
-    } else if (state.mode === 'gameOver') {
+    } else if (backdrop === 'gameOver') {
       drawCenteredText(buffers.logical, 'GAME OVER', 94, 3);
       drawCenteredText(buffers.logical, 'TAP TO START', 126, 2);
     }
   }
 
+  if (state.mode === 'exitConfirm') drawExitConfirm(buffers.logical);
+
   packToGray4(buffers.logical, buffers.packed, GAMEPLAY_HEIGHT, IMAGE_HEIGHT, GAMEPLAY_TOP);
   return buffers.packed;
+}
+
+function drawExitConfirm(frame: Uint8Array): void {
+  const left = 28;
+  const top = 76;
+  const width = 200;
+  const height = 68;
+
+  drawRect(frame, left, top, width, height, 0);
+  drawRect(frame, left, top, width, 1);
+  drawRect(frame, left, top + height - 1, width, 1);
+  drawRect(frame, left, top, 1, height);
+  drawRect(frame, left + width - 1, top, 1, height);
+
+  drawCenteredText(frame, 'EXIT GAME?', top + 12, 2);
+  drawCenteredText(frame, 'TAP = YES', top + 38, 1);
+  drawCenteredText(frame, 'SCROLL = NO', top + 52, 1);
 }
 
 export function renderHud(state: GameState, buffers: RenderBuffers): Uint8Array {

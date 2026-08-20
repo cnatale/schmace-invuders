@@ -1,4 +1,4 @@
-export type GameMode = 'title' | 'playing' | 'waveClear' | 'gameOver';
+export type GameMode = 'title' | 'playing' | 'waveClear' | 'gameOver' | 'exitConfirm';
 
 export type Shot = {
   x: number;
@@ -25,6 +25,7 @@ export type Barrier = {
 
 export type GameState = {
   mode: GameMode;
+  modeBeforeExitConfirm: GameMode;
   score: number;
   lives: number;
   wave: number;
@@ -66,6 +67,7 @@ const MAX_ALIEN_SHOTS = 3;
 export function createGameState(): GameState {
   return {
     mode: 'title',
+    modeBeforeExitConfirm: 'title',
     score: 0,
     lives: 3,
     wave: 1,
@@ -81,7 +83,20 @@ export function createGameState(): GameState {
   };
 }
 
+export function openExitConfirm(state: GameState): void {
+  if (state.mode === 'exitConfirm') return;
+  state.modeBeforeExitConfirm = state.mode;
+  state.mode = 'exitConfirm';
+}
+
+export function cancelExitConfirm(state: GameState): void {
+  if (state.mode !== 'exitConfirm') return;
+  state.mode = state.modeBeforeExitConfirm;
+}
+
 export function handleTap(state: GameState): void {
+  if (state.mode === 'exitConfirm') return;
+
   if (state.mode === 'title' || state.mode === 'gameOver') {
     startNewGame(state);
     return;
