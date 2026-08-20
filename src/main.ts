@@ -10,17 +10,22 @@ import {
 
 import { createGameState, handleTap, movePlayer, tickGame } from './game';
 import {
+  createHudRenderBuffers,
   createRenderBuffers,
   encodeMonochromeBmp,
+  HUD_IMAGE_HEIGHT,
   IMAGE_HEIGHT,
   IMAGE_WIDTH,
   renderGame,
+  renderHud,
 } from './render';
 
 const TEXT_CONTAINER_ID = 1;
 const TEXT_CONTAINER_NAME = 'input';
 const IMAGE_CONTAINER_ID = 2;
 const IMAGE_CONTAINER_NAME = 'game';
+const HUD_CONTAINER_ID = 3;
+const HUD_CONTAINER_NAME = 'hud';
 const TARGET_FRAME_MS = 100;
 const IS_MOBILE_WEBVIEW = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const USE_SIMULATOR_IMAGE_FORMAT = !IS_MOBILE_WEBVIEW;
@@ -28,6 +33,7 @@ const USE_SIMULATOR_IMAGE_FORMAT = !IS_MOBILE_WEBVIEW;
 const bridge = await waitForEvenAppBridge();
 const game = createGameState();
 const buffers = createRenderBuffers();
+const hudBuffers = createHudRenderBuffers();
 
 const inputLayer = new TextContainerProperty({
   xPosition: 0,
@@ -42,9 +48,22 @@ const inputLayer = new TextContainerProperty({
   isEventCapture: 1,
 });
 
+const contentHeight = HUD_IMAGE_HEIGHT + IMAGE_HEIGHT;
+const contentTop = Math.floor((288 - contentHeight) / 2);
+const imageLeft = Math.floor((576 - IMAGE_WIDTH) / 2);
+
+const hudImage = new ImageContainerProperty({
+  xPosition: imageLeft,
+  yPosition: contentTop,
+  width: IMAGE_WIDTH,
+  height: HUD_IMAGE_HEIGHT,
+  containerID: HUD_CONTAINER_ID,
+  containerName: HUD_CONTAINER_NAME,
+});
+
 const gameImage = new ImageContainerProperty({
-  xPosition: Math.floor((576 - IMAGE_WIDTH) / 2),
-  yPosition: Math.floor((288 - IMAGE_HEIGHT) / 2),
+  xPosition: imageLeft,
+  yPosition: contentTop + HUD_IMAGE_HEIGHT,
   width: IMAGE_WIDTH,
   height: IMAGE_HEIGHT,
   containerID: IMAGE_CONTAINER_ID,
@@ -53,9 +72,9 @@ const gameImage = new ImageContainerProperty({
 
 const result = await bridge.createStartUpPageContainer(
   new CreateStartUpPageContainer({
-    containerTotalNum: 2,
+    containerTotalNum: 3,
     textObject: [inputLayer],
-    imageObject: [gameImage],
+    imageObject: [hudImage, gameImage],
   }),
 );
 
@@ -65,7 +84,14 @@ if (result !== 0) {
   console.log(`[Schmace] ready (${USE_SIMULATOR_IMAGE_FORMAT ? 'simulator BMP' : 'hardware gray4'})`);
 }
 
-let pendingFrame: Uint8Array | null = null;
+type PendingFrame = {
+  game: Uint8Array;
+  hud: Uint8Array | null;
+  hudSignature: string;
+};
+
+let pendingFrame: PendingFrame | null = null;
+let displayedHudSignature = '';
 let isSendingFrame = false;
 let isPaused = false;
 let lastTick = performance.now();
@@ -124,8 +150,12 @@ function runGameLoop(timestamp: number): void {
 }
 
 function renderAndQueueFrame(): void {
-  const frame = renderGame(game, buffers);
-  pendingFrame = frame.slice();
+  const hudSignature = `${game.score}:${game.lives}:${game.wave}`;
+  pendingFrame = {
+    game: renderGame(game, buffers).slice(),
+    hud: hudSignature === displayedHudSignature ? null : renderHud(game, hudBuffers).slice(),
+    hudSignature,
+  };
   void drainFrameQueue();
 }
 
@@ -137,23 +167,41 @@ async function drainFrameQueue(): Promise<void> {
   isSendingFrame = true;
 
   try {
-    const imageData = USE_SIMULATOR_IMAGE_FORMAT ? encodeMonochromeBmp(frame) : frame;
-    const imageResult = await bridge.updateImageRawData(
-      new ImageRawDataUpdate({
-        containerID: IMAGE_CONTAINER_ID,
-        containerName: IMAGE_CONTAINER_NAME,
-        // number[] is the SDK's preferred host-facing representation. Passing
-        // it explicitly also works with simulator/host versions that do not
-        // normalize typed arrays consistently.
-        imageData: Array.from(imageData),
-      }),
-    );
-
-    if (imageResult !== ImageRawDataUpdateResult.success) {
-      console.warn('Image update failed:', imageResult);
+    if (frame.hud && frame.hudSignature !== displayedHudSignature) {
+      const hudWasSent = await sendImage(HUD_CONTAINER_ID, HUD_CONTAINER_NAME, frame.hud, HUD_IMAGE_HEIGHT);
+      if (hudWasSent) displayedHudSignature = frame.hudSignature;
     }
+    await sendImage(IMAGE_CONTAINER_ID, IMAGE_CONTAINER_NAME, frame.game, IMAGE_HEIGHT);
   } finally {
     isSendingFrame = false;
     if (pendingFrame) void drainFrameQueue();
   }
+}
+
+async function sendImage(
+  containerID: number,
+  containerName: string,
+  frame: Uint8Array,
+  height: number,
+): Promise<boolean> {
+  const imageData = USE_SIMULATOR_IMAGE_FORMAT
+    ? encodeMonochromeBmp(frame, IMAGE_WIDTH, height)
+    : frame;
+  const imageResult = await bridge.updateImageRawData(
+    new ImageRawDataUpdate({
+      containerID,
+      containerName,
+      // number[] is the SDK's preferred host-facing representation. Passing
+      // it explicitly also works with simulator/host versions that do not
+      // normalize typed arrays consistently.
+      imageData: Array.from(imageData),
+    }),
+  );
+
+  if (imageResult !== ImageRawDataUpdateResult.success) {
+    console.warn(`${containerName} image update failed:`, imageResult);
+    return false;
+  }
+
+  return true;
 }

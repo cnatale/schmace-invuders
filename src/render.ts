@@ -2,10 +2,12 @@ import { GAME_HEIGHT, GAME_WIDTH, PLAYER_Y, type Barrier, type GameState, type S
 
 export const IMAGE_WIDTH = 256;
 export const IMAGE_HEIGHT = 144;
+export const HUD_IMAGE_HEIGHT = 24;
 export const FRAMEBUFFER_SIZE = GAME_WIDTH * GAME_HEIGHT;
 export const PACKED_FRAME_SIZE = (IMAGE_WIDTH * IMAGE_HEIGHT) / 2;
+const HUD_FRAMEBUFFER_SIZE = IMAGE_WIDTH * HUD_IMAGE_HEIGHT;
+const HUD_PACKED_FRAME_SIZE = HUD_FRAMEBUFFER_SIZE / 2;
 const BMP_HEADER_SIZE = 62;
-const BMP_ROW_SIZE = IMAGE_WIDTH / 8;
 
 export type RenderBuffers = {
   logical: Uint8Array;
@@ -62,10 +64,16 @@ export function createRenderBuffers(): RenderBuffers {
   };
 }
 
+export function createHudRenderBuffers(): RenderBuffers {
+  return {
+    logical: new Uint8Array(HUD_FRAMEBUFFER_SIZE),
+    packed: new Uint8Array(HUD_PACKED_FRAME_SIZE),
+  };
+}
+
 export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array {
   buffers.logical.fill(0);
   // drawStars(buffers.logical, state);
-  drawHud(buffers.logical, state);
 
   if (state.mode === 'title') {
     drawCenteredText(buffers.logical, 'SCHMACE', 70, 3);
@@ -93,10 +101,32 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
   return buffers.packed;
 }
 
+export function renderHud(state: GameState, buffers: RenderBuffers): Uint8Array {
+  buffers.logical.fill(0);
+  drawText(buffers.logical, `SCORE:${state.score}`, 4, 7, 2, IMAGE_WIDTH, HUD_IMAGE_HEIGHT);
+  drawText(
+    buffers.logical,
+    `LIVES:${'|'.repeat(Math.max(0, state.lives))}`,
+    96,
+    7,
+    2,
+    IMAGE_WIDTH,
+    HUD_IMAGE_HEIGHT,
+  );
+  drawText(buffers.logical, `LEVEL:${state.wave}`, 188, 7, 2, IMAGE_WIDTH, HUD_IMAGE_HEIGHT);
+  packToGray4(buffers.logical, buffers.packed, HUD_IMAGE_HEIGHT, HUD_IMAGE_HEIGHT);
+  return buffers.packed;
+}
+
 // The simulator currently decodes updateImageRawData as a conventional image
 // file instead of accepting the raw gray4 format used by G2 hardware.
-export function encodeMonochromeBmp(packedGray4: Uint8Array): Uint8Array {
-  const pixelDataSize = BMP_ROW_SIZE * IMAGE_HEIGHT;
+export function encodeMonochromeBmp(
+  packedGray4: Uint8Array,
+  width = IMAGE_WIDTH,
+  height = IMAGE_HEIGHT,
+): Uint8Array {
+  const bmpRowSize = Math.ceil(width / 32) * 4;
+  const pixelDataSize = bmpRowSize * height;
   const bmp = new Uint8Array(BMP_HEADER_SIZE + pixelDataSize);
   const view = new DataView(bmp.buffer);
 
@@ -105,8 +135,8 @@ export function encodeMonochromeBmp(packedGray4: Uint8Array): Uint8Array {
   view.setUint32(2, bmp.length, true);
   view.setUint32(10, BMP_HEADER_SIZE, true);
   view.setUint32(14, 40, true);
-  view.setInt32(18, IMAGE_WIDTH, true);
-  view.setInt32(22, IMAGE_HEIGHT, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, height, true);
   view.setUint16(26, 1, true);
   view.setUint16(28, 1, true);
   view.setUint32(34, pixelDataSize, true);
@@ -115,15 +145,16 @@ export function encodeMonochromeBmp(packedGray4: Uint8Array): Uint8Array {
   // BMP palette entries are BGRA. Index 0 is off; index 1 is fully lit.
   bmp.set([0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00], 54);
 
-  for (let outputY = 0; outputY < IMAGE_HEIGHT; outputY++) {
-    const sourceY = IMAGE_HEIGHT - 1 - outputY;
-    const sourceRow = sourceY * (IMAGE_WIDTH / 2);
-    const outputRow = BMP_HEADER_SIZE + outputY * BMP_ROW_SIZE;
+  for (let outputY = 0; outputY < height; outputY++) {
+    const sourceY = height - 1 - outputY;
+    const sourceRow = sourceY * (width / 2);
+    const outputRow = BMP_HEADER_SIZE + outputY * bmpRowSize;
 
-    for (let byteX = 0; byteX < BMP_ROW_SIZE; byteX++) {
+    for (let byteX = 0; byteX < Math.ceil(width / 8); byteX++) {
       let pixels = 0;
       for (let bit = 0; bit < 8; bit++) {
         const pixelX = byteX * 8 + bit;
+        if (pixelX >= width) break;
         const gray4 = packedGray4[sourceRow + Math.floor(pixelX / 2)];
         const isLit = pixelX % 2 === 0 ? (gray4 & 0xf0) !== 0 : (gray4 & 0x0f) !== 0;
         if (isLit) pixels |= 0x80 >> bit;
@@ -133,13 +164,6 @@ export function encodeMonochromeBmp(packedGray4: Uint8Array): Uint8Array {
   }
 
   return bmp;
-}
-
-function drawHud(frame: Uint8Array, state: GameState): void {
-  drawText(frame, `SCORE:${state.score}`, 4, 5, 1);
-  drawText(frame, `LIVES:${'|'.repeat(Math.max(0, state.lives))}`, 100, 5, 1);
-  drawText(frame, `WAVE:${state.wave}`, 184, 5, 1);
-  drawLine(frame, 0, 18, GAME_WIDTH - 1, 18);
 }
 
 function drawAliens(frame: Uint8Array, state: GameState): void {
@@ -172,11 +196,19 @@ function drawCenteredText(frame: Uint8Array, text: string, y: number, scale: num
   drawText(frame, text, Math.floor((GAME_WIDTH - width) / 2), y, scale);
 }
 
-function drawText(frame: Uint8Array, text: string, x: number, y: number, scale: number): void {
+function drawText(
+  frame: Uint8Array,
+  text: string,
+  x: number,
+  y: number,
+  scale: number,
+  frameWidth = GAME_WIDTH,
+  frameHeight = GAME_HEIGHT,
+): void {
   let cursorX = x;
   for (const character of text.toUpperCase()) {
     const glyph = FONT[character] ?? FONT[' '];
-    drawBitmap(frame, glyph, cursorX, y, scale);
+    drawBitmap(frame, glyph, cursorX, y, scale, frameWidth, frameHeight);
     cursorX += (glyph[0].length + 1) * scale;
   }
 }
@@ -190,57 +222,62 @@ function measureText(text: string, scale: number): number {
   return Math.max(0, width - scale);
 }
 
-function drawBitmap(frame: Uint8Array, bitmap: string[], x: number, y: number, scale: number): void {
+function drawBitmap(
+  frame: Uint8Array,
+  bitmap: string[],
+  x: number,
+  y: number,
+  scale: number,
+  frameWidth = GAME_WIDTH,
+  frameHeight = GAME_HEIGHT,
+): void {
   for (let row = 0; row < bitmap.length; row++) {
     for (let column = 0; column < bitmap[row].length; column++) {
       if (bitmap[row][column] !== '1') continue;
-      drawRect(frame, x + column * scale, y + row * scale, scale, scale);
+      drawRect(frame, x + column * scale, y + row * scale, scale, scale, 1, frameWidth, frameHeight);
     }
   }
 }
 
-function drawRect(frame: Uint8Array, x: number, y: number, width: number, height: number, value = 1): void {
+function drawRect(
+  frame: Uint8Array,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  value = 1,
+  frameWidth = GAME_WIDTH,
+  frameHeight = GAME_HEIGHT,
+): void {
   for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
-      setPixel(frame, x + column, y + row, value);
+      setPixel(frame, x + column, y + row, value, frameWidth, frameHeight);
     }
   }
 }
 
-function drawLine(frame: Uint8Array, x1: number, y1: number, x2: number, y2: number): void {
-  const width = Math.abs(x2 - x1);
-  const height = Math.abs(y2 - y1);
-  const sx = x1 < x2 ? 1 : -1;
-  const sy = y1 < y2 ? 1 : -1;
-  let error = width - height;
-  let x = x1;
-  let y = y1;
-
-  while (true) {
-    setPixel(frame, x, y);
-    if (x === x2 && y === y2) break;
-    const doubledError = error * 2;
-    if (doubledError > -height) {
-      error -= height;
-      x += sx;
-    }
-    if (doubledError < width) {
-      error += width;
-      y += sy;
-    }
-  }
+function setPixel(
+  frame: Uint8Array,
+  x: number,
+  y: number,
+  value = 1,
+  frameWidth = GAME_WIDTH,
+  frameHeight = GAME_HEIGHT,
+): void {
+  if (x < 0 || y < 0 || x >= frameWidth || y >= frameHeight) return;
+  frame[y * frameWidth + x] = value;
 }
 
-function setPixel(frame: Uint8Array, x: number, y: number, value = 1): void {
-  if (x < 0 || y < 0 || x >= GAME_WIDTH || y >= GAME_HEIGHT) return;
-  frame[y * GAME_WIDTH + x] = value;
-}
-
-function packToGray4(logical: Uint8Array, packed: Uint8Array): void {
+function packToGray4(
+  logical: Uint8Array,
+  packed: Uint8Array,
+  sourceHeight = GAME_HEIGHT,
+  outputHeight = IMAGE_HEIGHT,
+): void {
   let packedIndex = 0;
 
-  for (let y = 0; y < IMAGE_HEIGHT; y++) {
-    const sourceY = Math.floor((y * GAME_HEIGHT) / IMAGE_HEIGHT);
+  for (let y = 0; y < outputHeight; y++) {
+    const sourceY = Math.floor((y * sourceHeight) / outputHeight);
     const sourceRow = sourceY * GAME_WIDTH;
 
     for (let x = 0; x < IMAGE_WIDTH; x += 2) {
