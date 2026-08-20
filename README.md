@@ -17,8 +17,10 @@ An Even Hub Space Invaders clone for the Even Realities G2 glasses.
 
 The G2 SDK exposes three-axis accelerometer samples, but it does not document
 the axis orientation or units. The head controls use empirically measured
-gravity-vector changes with smoothing and hysteresis. To log IMU data, start
-the Vite server with network access and add `?imuDebug=1` to the prototype URL:
+gravity-vector changes with smoothing and hysteresis. The neutral baseline
+slowly follows ordinary posture drift, and a watchdog stops stale movement and
+restarts the IMU if its event stream stalls. To log IMU data, start the Vite
+server with network access and add `?imuDebug=1` to the prototype URL:
 
 ```bash
 npm run dev -- --host 0.0.0.0

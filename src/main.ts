@@ -51,10 +51,15 @@ const IMU_LOG_WINDOW_MS = 2000;
 const IMU_SMOOTHING = 0.35;
 const HEAD_CALIBRATION_SETTLE_MS = 350;
 const HEAD_CALIBRATION_DURATION_MS = 1200;
-const HEAD_TILT_ENTER = 0.3;
-const HEAD_TILT_EXIT = 0.18;
-const HEAD_UP_ENTER = 0.26;
-const HEAD_UP_EXIT = 0.14;
+const HEAD_TILT_ENTER = 0.15;
+const HEAD_TILT_EXIT = 0.09;
+const HEAD_UP_ENTER = 0.13;
+const HEAD_UP_EXIT = 0.07;
+const HEAD_BASELINE_ADAPTATION = 0.025;
+const HEAD_BASELINE_ADAPT_LIMIT = 0.8;
+const IMU_INPUT_STALE_MS = 400;
+const IMU_RESTART_AFTER_MS = 2000;
+const IMU_RESTART_COOLDOWN_MS = 5000;
 
 const bridge = await waitForEvenAppBridge();
 const game = createGameState();
@@ -139,6 +144,10 @@ let headCalibrationStartedAt = 0;
 let headCalibrationSampleCount = 0;
 let headCalibrationSum: ImuVector = { x: 0, y: 0, z: 0 };
 let headShotArmed = true;
+let lastImuSampleAt = 0;
+let imuStreamStartedAt = performance.now();
+let lastImuRestartAttemptAt = 0;
+let isRestartingImu = false;
 const imuCaptureStartedAt = performance.now();
 let imuLogWindowStartedAt = imuCaptureStartedAt;
 let imuSamples: Array<{ t: number; x: number; y: number; z: number }> = [];
@@ -238,6 +247,7 @@ function isInputEvent(eventType: OsEventTypeList): boolean {
 }
 
 async function startImu(): Promise<void> {
+  imuStreamStartedAt = performance.now();
   const result = await callHost('imuControl(true)', false, async () => {
     await bridge.imuControl(true, ImuReportPace.P100);
     return true;
@@ -251,6 +261,7 @@ async function startImu(): Promise<void> {
 }
 
 function recordImuSample(x: number, y: number, z: number): void {
+  lastImuSampleAt = performance.now();
   processHeadControls(x, y, z);
   if (!IMU_DEBUG) return;
 
@@ -306,8 +317,24 @@ function processHeadControls(x: number, y: number, z: number): void {
     return;
   }
 
-  const pitchDelta = smoothedImu.x - headBaseline.x;
-  const tiltDelta = smoothedImu.y - headBaseline.y;
+  let pitchDelta = smoothedImu.x - headBaseline.x;
+  let tiltDelta = smoothedImu.y - headBaseline.y;
+
+  // Glasses settle on the nose and the user's neutral posture changes slowly.
+  // Follow that drift only while safely inside the neutral zone; deliberate
+  // gestures cross the zone too quickly and are therefore not absorbed.
+  if (
+    headMoveDirection === 0 &&
+    headShotArmed &&
+    Math.abs(pitchDelta) < HEAD_UP_ENTER * HEAD_BASELINE_ADAPT_LIMIT &&
+    Math.abs(tiltDelta) < HEAD_TILT_ENTER * HEAD_BASELINE_ADAPT_LIMIT
+  ) {
+    headBaseline.x = adaptBaselineAxis(headBaseline.x, smoothedImu.x);
+    headBaseline.y = adaptBaselineAxis(headBaseline.y, smoothedImu.y);
+    headBaseline.z = adaptBaselineAxis(headBaseline.z, smoothedImu.z);
+    pitchDelta = smoothedImu.x - headBaseline.x;
+    tiltDelta = smoothedImu.y - headBaseline.y;
+  }
 
   if (pitchDelta < HEAD_UP_EXIT) headShotArmed = true;
   if (pitchDelta > HEAD_UP_ENTER) {
@@ -366,6 +393,47 @@ function smoothImuAxis(previous: number, next: number): number {
   return previous + (next - previous) * IMU_SMOOTHING;
 }
 
+function adaptBaselineAxis(previous: number, next: number): number {
+  return previous + (next - previous) * HEAD_BASELINE_ADAPTATION;
+}
+
+function checkImuWatchdog(timestamp: number): void {
+  if (game.mode !== 'playing') return;
+
+  const latestActivity = Math.max(lastImuSampleAt, imuStreamStartedAt);
+  const silenceMs = timestamp - latestActivity;
+
+  if (silenceMs > IMU_INPUT_STALE_MS) {
+    // Never keep applying a stale directional command when BLE delivery stops.
+    headMoveDirection = 0;
+    smoothedImu = null;
+  }
+
+  if (
+    silenceMs > IMU_RESTART_AFTER_MS &&
+    !isRestartingImu &&
+    timestamp - lastImuRestartAttemptAt > IMU_RESTART_COOLDOWN_MS
+  ) {
+    void restartImu();
+  }
+}
+
+async function restartImu(): Promise<void> {
+  isRestartingImu = true;
+  lastImuRestartAttemptAt = performance.now();
+  console.warn('[Schmace IMU] stream stalled; restarting');
+
+  try {
+    await callHost('imuControl(false)', false, async () => {
+      await bridge.imuControl(false);
+      return true;
+    });
+    await startImu();
+  } finally {
+    isRestartingImu = false;
+  }
+}
+
 async function uploadImuSamples(samples: typeof imuSamples): Promise<void> {
   try {
     await fetch('/__imu_capture', {
@@ -401,6 +469,7 @@ function runGameLoop(timestamp: number): void {
   if (timestamp - lastTick >= TARGET_FRAME_MS) {
     lastTick = timestamp;
     if (swipeMoveDirection !== 0 && timestamp > swipeExpiresAt) stopSwipeMovement();
+    checkImuWatchdog(timestamp);
 
     // Frames stop landing while a native overlay owns the display. Holding the
     // simulation until sends recover keeps the player from dying behind the
