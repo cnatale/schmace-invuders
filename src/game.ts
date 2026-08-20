@@ -45,8 +45,8 @@ export const PLAYER_Y = 204;
 
 const PLAYER_WIDTH = 15;
 const PLAYER_STEP = 9;
-const PLAYER_SHOT_SPEED = 9;
-const ALIEN_SHOT_SPEED = 6;
+const PLAYER_SHOT_SPEED = 4.5;
+const ALIEN_SHOT_SPEED = 3;
 const ALIEN_ROWS = 5;
 const ALIEN_COLUMNS = 9;
 const ALIEN_WIDTH = 11;
@@ -121,7 +121,7 @@ export function tickGame(state: GameState): void {
 
   if (state.aliens.length === 0) {
     state.wave++;
-    state.waveClearClock = 7;
+    state.waveClearClock = 14;
     state.playerShots = [];
     state.alienShots = [];
     state.mode = 'waveClear';
@@ -205,7 +205,8 @@ function updateAlienShots(state: GameState): void {
 }
 
 function updateAliens(state: GameState): void {
-  const interval = Math.max(2, 8 - state.wave - Math.floor((ALIEN_ROWS * ALIEN_COLUMNS - state.aliens.length) / 8));
+  const interval =
+    Math.max(2, 8 - state.wave - Math.floor((ALIEN_ROWS * ALIEN_COLUMNS - state.aliens.length) / 8)) * 2;
   state.alienMoveClock++;
   if (state.alienMoveClock < interval) return;
   state.alienMoveClock = 0;
@@ -227,8 +228,9 @@ function updateAliens(state: GameState): void {
 function maybeFireAlienShot(state: GameState): void {
   if (state.alienShots.length >= MAX_ALIEN_SHOTS || state.aliens.length === 0) return;
 
-  const fireChance = Math.min(62, 22 + state.wave * 5);
-  if (nextRandom(state) % 100 >= fireChance) return;
+  const oldTickFireChance = Math.min(62, 22 + state.wave * 5) / 100;
+  const fireChance = 1 - Math.sqrt(1 - oldTickFireChance);
+  if ((nextRandom(state) % 10_000) / 10_000 >= fireChance) return;
 
   const shooters = state.aliens.filter((alien) => {
     return !state.aliens.some((other) => other.x === alien.x && other.y > alien.y);

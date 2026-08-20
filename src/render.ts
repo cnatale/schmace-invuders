@@ -154,7 +154,7 @@ function drawPlayer(frame: Uint8Array, playerX: number): void {
 }
 
 function drawShots(frame: Uint8Array, shots: Shot[]): void {
-  for (const shot of shots) drawRect(frame, shot.x, shot.y, shot.width, shot.height);
+  for (const shot of shots) drawRect(frame, Math.round(shot.x), Math.round(shot.y), shot.width, shot.height);
 }
 
 function drawBarriers(frame: Uint8Array, barriers: Barrier[]): void {

@@ -21,7 +21,7 @@ const TEXT_CONTAINER_ID = 1;
 const TEXT_CONTAINER_NAME = 'input';
 const IMAGE_CONTAINER_ID = 2;
 const IMAGE_CONTAINER_NAME = 'game';
-const TARGET_FRAME_MS = 200;
+const TARGET_FRAME_MS = 100;
 const IS_MOBILE_WEBVIEW = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const USE_SIMULATOR_IMAGE_FORMAT = !IS_MOBILE_WEBVIEW;
 

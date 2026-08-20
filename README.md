@@ -29,7 +29,7 @@ packed byte:         high nibble = left pixel, low nibble = right pixel
 colors:              0x0 off, 0xF on
 ```
 
-The loop is driven by `requestAnimationFrame` and throttled to a 5 FPS target.
+The loop is driven by `requestAnimationFrame` and throttled to a 10 FPS target.
 Image updates are sent sequentially because the Even Hub SDK does not allow
 concurrent image transfers. If BLE delivery falls behind the game loop, only
 the newest pending frame is retained.
