@@ -13,6 +13,7 @@ import {
   cancelExitConfirm,
   createGameState,
   handleTap,
+  HEAD_TILT_PLAYER_STEP,
   movePlayer,
   openExitConfirm,
   tickGame,
@@ -467,9 +468,10 @@ function runGameLoop(timestamp: number): void {
     // simulation until sends recover keeps the player from dying behind the
     // dialog without having to guess which lifecycle event means "overlay up".
     if (consecutiveSendFailures === 0) {
-      const moveDirection = headMoveDirection || swipeMoveDirection;
-      if (moveDirection !== 0) {
-        movePlayer(game, moveDirection);
+      if (headMoveDirection !== 0) {
+        movePlayer(game, headMoveDirection, HEAD_TILT_PLAYER_STEP);
+      } else if (swipeMoveDirection !== 0) {
+        movePlayer(game, swipeMoveDirection);
       }
       tickGame(game);
     }

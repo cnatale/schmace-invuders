@@ -55,6 +55,7 @@ export const PLAYER_Y = 204;
 
 const PLAYER_WIDTH = 15;
 const PLAYER_STEP = 4.5;
+export const HEAD_TILT_PLAYER_STEP = PLAYER_STEP / 2;
 const PLAYER_SHOT_SPEED = 4.5;
 const ALIEN_SHOT_SPEED = 3;
 const ALIEN_ROWS = 5;
@@ -125,9 +126,13 @@ export function handleTap(state: GameState): void {
   if (state.mode === 'playing') firePlayerShot(state);
 }
 
-export function movePlayer(state: GameState, direction: -1 | 1): void {
+export function movePlayer(
+  state: GameState,
+  direction: -1 | 1,
+  step: number = PLAYER_STEP,
+): void {
   if (state.mode !== 'playing') return;
-  state.playerX = clamp(state.playerX + direction * PLAYER_STEP, 4, GAME_WIDTH - PLAYER_WIDTH - 4);
+  state.playerX = clamp(state.playerX + direction * step, 4, GAME_WIDTH - PLAYER_WIDTH - 4);
 }
 
 export function tickGame(state: GameState): void {
