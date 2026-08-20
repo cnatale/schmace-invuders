@@ -1,75 +1,147 @@
 import {
   waitForEvenAppBridge,
   TextContainerProperty,
-  TextContainerUpgrade,
+  ImageContainerProperty,
+  ImageRawDataUpdate,
+  ImageRawDataUpdateResult,
   CreateStartUpPageContainer,
   OsEventTypeList,
 } from '@evenrealities/even_hub_sdk';
 
-// Wait for hte bridge to be ready before doing anything else.
-// In the simulator this resolves immediately; on hardware it waits
-// for the WebView to initialize the SDK bridge.
-const bridge = await waitForEvenAppBridge();
+import { createGameState, handleTap, movePlayer, tickGame } from './game';
+import { createRenderBuffers, IMAGE_HEIGHT, IMAGE_WIDTH, renderGame } from './render';
 
-// Build a single text container that fills the visible canvas (576x288).
-const mainText = new TextContainerProperty({
+const TEXT_CONTAINER_ID = 1;
+const TEXT_CONTAINER_NAME = 'input';
+const IMAGE_CONTAINER_ID = 2;
+const IMAGE_CONTAINER_NAME = 'game';
+const TARGET_FRAME_MS = 200;
+
+const bridge = await waitForEvenAppBridge();
+const game = createGameState();
+const buffers = createRenderBuffers();
+
+const inputLayer = new TextContainerProperty({
   xPosition: 0,
   yPosition: 0,
   width: 576,
   height: 288,
   borderWidth: 0,
-  borderColor: 5,
-  paddingLength: 4,
-  containerID: 1,
-  containerName: 'main',
-  content: 'Hello world!\n\nTap to count: 0\nDouble-tap to exit',
-  isEventCapture: 1,  // <- receive click events on this container
+  paddingLength: 0,
+  containerID: TEXT_CONTAINER_ID,
+  containerName: TEXT_CONTAINER_NAME,
+  content: ' ',
+  isEventCapture: 1,
+  zOrderIndex: 1,
 });
 
-// Render the page. `result` is 0 on success.
+const gameImage = new ImageContainerProperty({
+  xPosition: Math.floor((576 - IMAGE_WIDTH) / 2),
+  yPosition: Math.floor((288 - IMAGE_HEIGHT) / 2),
+  width: IMAGE_WIDTH,
+  height: IMAGE_HEIGHT,
+  containerID: IMAGE_CONTAINER_ID,
+  containerName: IMAGE_CONTAINER_NAME,
+  zOrderIndex: 2,
+});
+
 const result = await bridge.createStartUpPageContainer(
   new CreateStartUpPageContainer({
-    containerTotalNum: 1,
-    textObject: [mainText]
-  })
+    containerTotalNum: 2,
+    textObject: [inputLayer],
+    imageObject: [gameImage],
+  }),
 );
 
 if (result !== 0) {
   console.error('createStartUpPageContainer failed:', result);
-  // 1 = invalid params, 2 = oversize, 3 = out of memory
 }
 
-// Single event subscription - all OS events arrive through onEvenHubEvent
-// Inspect event.textEvent / event.listEvent / event.sysEvent to route by source.
-let count = 0;
+let pendingFrame: Uint8Array | null = null;
+let isSendingFrame = false;
+let isPaused = false;
+let lastTick = performance.now();
+
+renderAndQueueFrame();
+requestAnimationFrame(runGameLoop);
 
 bridge.onEvenHubEvent((event) => {
-  // Tap and double-tap arrive on sysEvent; scroll arrives on textEvent for the
-  // capturing container. Both sources have to be handled to see a tap at all.
   const source = event.textEvent ?? event.sysEvent;
   if (!source) return;
 
-  // sysEvent carries no containerID, so only filter when the event is scoped to one.
-  if (event.textEvent && event.textEvent.containerID !== 1) return;
+  if (event.textEvent && event.textEvent.containerID !== TEXT_CONTAINER_ID) return;
 
-  // Event_Type is omitted on the wire for CLICK_EVENT since its PB ordinal is 0.
   const eventType = source.eventType ?? OsEventTypeList.CLICK_EVENT;
 
   switch (eventType) {
     case OsEventTypeList.CLICK_EVENT:
-      count++;
-      console.log('count:', count);
-      bridge.textContainerUpgrade(new TextContainerUpgrade({
-        containerID: 1,
-        containerName: 'main',
-        content: `Hello world!\n\nTap to count: ${count}\nDouble-tap to exit`,
-      }))
+      handleTap(game);
+      renderAndQueueFrame();
+      break;
+
+    case OsEventTypeList.SCROLL_TOP_EVENT:
+      movePlayer(game, -1);
+      renderAndQueueFrame();
+      break;
+
+    case OsEventTypeList.SCROLL_BOTTOM_EVENT:
+      movePlayer(game, 1);
+      renderAndQueueFrame();
       break;
 
     case OsEventTypeList.DOUBLE_CLICK_EVENT:
-      // Mode 1 shows the system exit-confirmation dialog -
-      // required on the root page; silent exit (mode 0) is rejected in QA.
-      bridge.shutDownPageContainer(1)
+      bridge.shutDownPageContainer(1);
+      break;
+
+    case OsEventTypeList.FOREGROUND_EXIT_EVENT:
+      isPaused = true;
+      break;
+
+    case OsEventTypeList.FOREGROUND_ENTER_EVENT:
+      isPaused = false;
+      lastTick = performance.now();
+      renderAndQueueFrame();
       break;
   }
-})
+});
+
+function runGameLoop(timestamp: number): void {
+  if (!isPaused && timestamp - lastTick >= TARGET_FRAME_MS) {
+    lastTick = timestamp;
+    tickGame(game);
+    renderAndQueueFrame();
+  }
+
+  requestAnimationFrame(runGameLoop);
+}
+
+function renderAndQueueFrame(): void {
+  const frame = renderGame(game, buffers);
+  pendingFrame = frame.slice();
+  void drainFrameQueue();
+}
+
+async function drainFrameQueue(): Promise<void> {
+  if (isSendingFrame || !pendingFrame) return;
+
+  const frame = pendingFrame;
+  pendingFrame = null;
+  isSendingFrame = true;
+
+  try {
+    const imageResult = await bridge.updateImageRawData(
+      new ImageRawDataUpdate({
+        containerID: IMAGE_CONTAINER_ID,
+        containerName: IMAGE_CONTAINER_NAME,
+        imageData: frame,
+      }),
+    );
+
+    if (imageResult !== ImageRawDataUpdateResult.success) {
+      console.warn('Image update failed:', imageResult);
+    }
+  } finally {
+    isSendingFrame = false;
+    if (pendingFrame) void drainFrameQueue();
+  }
+}

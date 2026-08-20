@@ -1,6 +1,38 @@
 # Schmace Invuders
 
-An Even Hub app for the Even Realities G2 glasses.
+An Even Hub Space Invaders clone for the Even Realities G2 glasses.
+
+## Gameplay
+
+- Single tap starts or restarts the game.
+- Scroll up moves left.
+- Scroll down moves right.
+- Single tap fires while playing.
+- Double tap opens the system exit confirmation.
+
+## Rendering
+
+Schmace Invuders runs entirely inside the local WebView. There is no WebSocket
+or remote render server, so input latency is bounded by local JavaScript work,
+BLE display transfer, and the glasses firmware.
+
+The game simulation uses a 256 x 224 logical framebuffer represented by a
+one-dimensional `Uint8Array`. Every entry is either off (`0`) or on (`1`), so
+the game stays two-color for better LZ4 compression in transit. Each frame is
+nearest-neighbor scaled into the SDK-supported 256 x 144 image container and
+packed into raw 4-bit grayscale bytes for `updateImageRawData`:
+
+```text
+logical pixel array: 256 * 224 bytes, values 0 or 1
+display payload:     256 * 144 / 2 bytes
+packed byte:         high nibble = left pixel, low nibble = right pixel
+colors:              0x0 off, 0xF on
+```
+
+The loop is driven by `requestAnimationFrame` and throttled to a 5 FPS target.
+Image updates are sent sequentially because the Even Hub SDK does not allow
+concurrent image transfers. If BLE delivery falls behind the game loop, only
+the newest pending frame is retained.
 
 ## Setup
 
