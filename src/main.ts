@@ -51,12 +51,13 @@ const IMU_LOG_WINDOW_MS = 2000;
 const IMU_SMOOTHING = 0.35;
 const HEAD_CALIBRATION_SETTLE_MS = 350;
 const HEAD_CALIBRATION_DURATION_MS = 1200;
-const HEAD_TILT_ENTER = 0.15;
-const HEAD_TILT_EXIT = 0.09;
-const HEAD_UP_ENTER = 0.13;
-const HEAD_UP_EXIT = 0.07;
-const HEAD_BASELINE_ADAPTATION = 0.025;
-const HEAD_BASELINE_ADAPT_LIMIT = 0.8;
+const HEAD_LEFT_ENTER = -0.15;
+const HEAD_LEFT_EXIT = -0.09;
+const HEAD_RIGHT_ENTER = 0.1;
+const HEAD_RIGHT_EXIT = 0.06;
+const HEAD_UP_ENTER = 0.1;
+const HEAD_UP_EXIT = 0.055;
+const HEAD_BASELINE_ADAPTATION = 0.015;
 const IMU_INPUT_STALE_MS = 400;
 const IMU_RESTART_AFTER_MS = 2000;
 const IMU_RESTART_COOLDOWN_MS = 5000;
@@ -317,24 +318,15 @@ function processHeadControls(x: number, y: number, z: number): void {
     return;
   }
 
-  let pitchDelta = smoothedImu.x - headBaseline.x;
-  let tiltDelta = smoothedImu.y - headBaseline.y;
+  // Use the initial calibration as the seed for a slow-moving neutral pose.
+  // Adapting continuously prevents a gradual glasses/posture shift from being
+  // latched forever as a gesture. The slow rate preserves deliberate tilts.
+  headBaseline.x = adaptBaselineAxis(headBaseline.x, smoothedImu.x);
+  headBaseline.y = adaptBaselineAxis(headBaseline.y, smoothedImu.y);
+  headBaseline.z = adaptBaselineAxis(headBaseline.z, smoothedImu.z);
 
-  // Glasses settle on the nose and the user's neutral posture changes slowly.
-  // Follow that drift only while safely inside the neutral zone; deliberate
-  // gestures cross the zone too quickly and are therefore not absorbed.
-  if (
-    headMoveDirection === 0 &&
-    headShotArmed &&
-    Math.abs(pitchDelta) < HEAD_UP_ENTER * HEAD_BASELINE_ADAPT_LIMIT &&
-    Math.abs(tiltDelta) < HEAD_TILT_ENTER * HEAD_BASELINE_ADAPT_LIMIT
-  ) {
-    headBaseline.x = adaptBaselineAxis(headBaseline.x, smoothedImu.x);
-    headBaseline.y = adaptBaselineAxis(headBaseline.y, smoothedImu.y);
-    headBaseline.z = adaptBaselineAxis(headBaseline.z, smoothedImu.z);
-    pitchDelta = smoothedImu.x - headBaseline.x;
-    tiltDelta = smoothedImu.y - headBaseline.y;
-  }
+  const pitchDelta = smoothedImu.x - headBaseline.x;
+  const tiltDelta = smoothedImu.y - headBaseline.y;
 
   if (pitchDelta < HEAD_UP_EXIT) headShotArmed = true;
   if (pitchDelta > HEAD_UP_ENTER) {
@@ -348,15 +340,15 @@ function processHeadControls(x: number, y: number, z: number): void {
   }
 
   if (
-    (headMoveDirection === -1 && tiltDelta < -HEAD_TILT_EXIT) ||
-    (headMoveDirection === 1 && tiltDelta > HEAD_TILT_EXIT)
+    (headMoveDirection === -1 && tiltDelta < HEAD_LEFT_EXIT) ||
+    (headMoveDirection === 1 && tiltDelta > HEAD_RIGHT_EXIT)
   ) {
     return;
   }
 
-  if (tiltDelta < -HEAD_TILT_ENTER) {
+  if (tiltDelta < HEAD_LEFT_ENTER) {
     headMoveDirection = -1;
-  } else if (tiltDelta > HEAD_TILT_ENTER) {
+  } else if (tiltDelta > HEAD_RIGHT_ENTER) {
     headMoveDirection = 1;
   } else {
     headMoveDirection = 0;
