@@ -37,6 +37,7 @@ export type GameState = {
   alienDirection: -1 | 1;
   alienMoveClock: number;
   waveClearClock: number;
+  frameClock: number;
   rngSeed: number;
 };
 
@@ -79,6 +80,7 @@ export function createGameState(): GameState {
     alienDirection: 1,
     alienMoveClock: 0,
     waveClearClock: 0,
+    frameClock: 0,
     rngSeed: 0x5eed,
   };
 }
@@ -116,6 +118,8 @@ export function movePlayer(state: GameState, direction: -1 | 1): void {
 }
 
 export function tickGame(state: GameState): void {
+  state.frameClock++;
+
   if (state.mode === 'waveClear') {
     state.waveClearClock--;
     if (state.waveClearClock <= 0) startWave(state);

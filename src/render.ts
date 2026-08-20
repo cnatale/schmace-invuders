@@ -93,9 +93,11 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
   if (backdrop === 'title') {
     drawCenteredText(buffers.logical, 'SCHMACE', 70, 3);
     drawCenteredText(buffers.logical, 'INVUDERS', 90, 3);
-    drawCenteredText(buffers.logical, 'TAP TO START', 126, 2);
-    drawCenteredText(buffers.logical, 'SCROLL MOVES', 146, 1);
-    drawCenteredText(buffers.logical, 'TAP FIRES', 160, 1);
+    if (shouldShowTapToStart(state)) {
+      drawCenteredText(buffers.logical, 'TAP TO START', 126, 2);
+    }
+    drawCenteredText(buffers.logical, 'SCROLL MOVES', 160, 2);
+    drawCenteredText(buffers.logical, 'TAP FIRES', 174, 2);
     drawBitmap(buffers.logical, SHIP_SPRITE, 122, 44, 2);
   } else {
     drawAliens(buffers.logical, state);
@@ -108,7 +110,9 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
       drawCenteredText(buffers.logical, 'WAVE CLEAR', 101, 2);
     } else if (backdrop === 'gameOver') {
       drawCenteredText(buffers.logical, 'GAME OVER', 94, 3);
-      drawCenteredText(buffers.logical, 'TAP TO START', 126, 2);
+      if (shouldShowTapToStart(state)) {
+        drawCenteredText(buffers.logical, 'TAP TO START', 126, 2);
+      }
     }
   }
 
@@ -116,6 +120,11 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
 
   packToGray4(buffers.logical, buffers.packed, GAMEPLAY_HEIGHT, IMAGE_HEIGHT, GAMEPLAY_TOP);
   return buffers.packed;
+}
+
+function shouldShowTapToStart(state: GameState): boolean {
+  // ~1s on / 1s off at the 10 Hz game tick.
+  return Math.floor(state.frameClock / 10) % 2 === 0;
 }
 
 function drawExitConfirm(frame: Uint8Array): void {
