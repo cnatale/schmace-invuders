@@ -5,8 +5,8 @@ An Even Hub Space Invaders clone for the Even Realities G2 glasses.
 ## Gameplay
 
 - Single tap starts or restarts the game.
-- Scroll up moves left.
-- Scroll down moves right.
+- Swipe up moves left continuously while swiping.
+- Swipe down moves right continuously while swiping.
 - Single tap fires while playing.
 - Double tap opens the system exit confirmation.
 

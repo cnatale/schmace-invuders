@@ -45,7 +45,7 @@ export const GAME_HEIGHT = 224;
 export const PLAYER_Y = 204;
 
 const PLAYER_WIDTH = 15;
-const PLAYER_STEP = 9;
+const PLAYER_STEP = 4.5;
 const PLAYER_SHOT_SPEED = 4.5;
 const ALIEN_SHOT_SPEED = 3;
 const ALIEN_ROWS = 5;

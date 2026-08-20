@@ -207,8 +207,9 @@ function drawAliens(frame: Uint8Array, state: GameState): void {
 }
 
 function drawPlayer(frame: Uint8Array, playerX: number): void {
-  drawBitmap(frame, PLAYER_SPRITE, playerX + 4, PLAYER_Y, 1);
-  drawRect(frame, playerX, PLAYER_Y + 5, 15, 3);
+  const renderedX = Math.round(playerX);
+  drawBitmap(frame, PLAYER_SPRITE, renderedX + 4, PLAYER_Y, 1);
+  drawRect(frame, renderedX, PLAYER_Y + 5, 15, 3);
 }
 
 function drawShots(frame: Uint8Array, shots: Shot[]): void {

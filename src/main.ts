@@ -36,6 +36,10 @@ const HUD_CONTAINER_NAME = 'hud';
 const TARGET_FRAME_MS = 100;
 const IS_MOBILE_WEBVIEW = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const USE_SIMULATOR_IMAGE_FORMAT = !IS_MOBILE_WEBVIEW;
+// The SDK reports swipe direction but not touch release. Directional events
+// arrive repeatedly while scrolling, so a short quiet period is the closest
+// available release signal and also tolerates an occasional missed sample.
+const SWIPE_RELEASE_GRACE_MS = 300;
 // The SDK awaits `flutter_inappwebview.callHandler` with no timeout of its own,
 // so a host reply that never arrives would otherwise stall the frame pump for
 // the rest of the session.
@@ -109,6 +113,8 @@ let hasExited = false;
 let consecutiveSendFailures = 0;
 let hasReportedStalledImagePath = false;
 let lastTick = performance.now();
+let playerMoveDirection: -1 | 0 | 1 = 0;
+let swipeExpiresAt = 0;
 
 renderAndQueueFrame();
 requestAnimationFrame(runGameLoop);
@@ -133,21 +139,21 @@ bridge.onEvenHubEvent((event) => {
 
   switch (eventType) {
     case OsEventTypeList.CLICK_EVENT:
+      stopPlayerMovement();
       handleTap(game);
       renderAndQueueFrame();
       break;
 
     case OsEventTypeList.SCROLL_TOP_EVENT:
-      movePlayer(game, -1);
-      renderAndQueueFrame();
+      updatePlayerMovement(-1);
       break;
 
     case OsEventTypeList.SCROLL_BOTTOM_EVENT:
-      movePlayer(game, 1);
-      renderAndQueueFrame();
+      updatePlayerMovement(1);
       break;
 
     case OsEventTypeList.DOUBLE_CLICK_EVENT:
+      stopPlayerMovement();
       openExitConfirm(game);
       renderAndQueueFrame();
       break;
@@ -164,10 +170,23 @@ bridge.onEvenHubEvent((event) => {
 
     case OsEventTypeList.SYSTEM_EXIT_EVENT:
     case OsEventTypeList.ABNORMAL_EXIT_EVENT:
+      stopPlayerMovement();
       hasExited = true;
       break;
   }
 });
+
+function updatePlayerMovement(direction: -1 | 1): void {
+  playerMoveDirection = direction;
+  swipeExpiresAt = performance.now() + SWIPE_RELEASE_GRACE_MS;
+  movePlayer(game, direction);
+  renderAndQueueFrame();
+}
+
+function stopPlayerMovement(): void {
+  playerMoveDirection = 0;
+  swipeExpiresAt = 0;
+}
 
 function isInputEvent(eventType: OsEventTypeList): boolean {
   return (
@@ -192,10 +211,17 @@ function runGameLoop(timestamp: number): void {
 
   if (timestamp - lastTick >= TARGET_FRAME_MS) {
     lastTick = timestamp;
+    if (playerMoveDirection !== 0 && timestamp > swipeExpiresAt) stopPlayerMovement();
+
     // Frames stop landing while a native overlay owns the display. Holding the
     // simulation until sends recover keeps the player from dying behind the
     // dialog without having to guess which lifecycle event means "overlay up".
-    if (consecutiveSendFailures === 0) tickGame(game);
+    if (consecutiveSendFailures === 0) {
+      if (playerMoveDirection !== 0) {
+        movePlayer(game, playerMoveDirection);
+      }
+      tickGame(game);
+    }
     renderAndQueueFrame();
   }
 
