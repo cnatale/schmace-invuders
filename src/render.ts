@@ -27,6 +27,8 @@ const SHIP_SPRITE = ['00111100', '01111110', '11011011', '11111111'];
 const FONT: Record<string, string[]> = {
   ' ': ['000', '000', '000', '000', '000'],
   ':': ['0', '1', '0', '1', '0'],
+  ',': ['000', '000', '000', '010', '100'],
+  '/': ['001', '010', '100', '010', '001'],
   '|': ['1', '1', '1', '1', '1'],
   '?': ['111', '001', '011', '000', '010'],
   '=': ['000', '111', '000', '111', '000'],
@@ -96,8 +98,9 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
     if (shouldShowTapToStart(state)) {
       drawCenteredText(buffers.logical, 'TAP TO START', 126, 2);
     }
-    drawCenteredText(buffers.logical, 'SCROLL MOVES', 160, 2);
-    drawCenteredText(buffers.logical, 'TAP FIRES', 174, 2);
+    drawCenteredText(buffers.logical, 'MOVE:', 158, 2);
+    drawCenteredText(buffers.logical, 'SWIPE OR TILT HEAD LEFT, RIGHT', 172, 2);
+    drawCenteredText(buffers.logical, 'SHOOT: TAP OR TILT HEAD UP', 186, 2);
     drawBitmap(buffers.logical, SHIP_SPRITE, 122, 44, 2);
   } else {
     drawAliens(buffers.logical, state);
