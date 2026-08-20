@@ -108,7 +108,7 @@ export function renderHud(state: GameState, buffers: RenderBuffers): Uint8Array 
   drawText(buffers.logical, `SCORE:${state.score}`, 4, 7, 2, IMAGE_WIDTH, HUD_IMAGE_HEIGHT);
   drawText(
     buffers.logical,
-    `LIVES:${'|'.repeat(Math.max(0, state.lives))}`,
+    `LIVES:${Math.max(0, state.lives)}`,
     96,
     7,
     2,
