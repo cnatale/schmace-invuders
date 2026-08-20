@@ -9,13 +9,21 @@ import {
 } from '@evenrealities/even_hub_sdk';
 
 import { createGameState, handleTap, movePlayer, tickGame } from './game';
-import { createRenderBuffers, IMAGE_HEIGHT, IMAGE_WIDTH, renderGame } from './render';
+import {
+  createRenderBuffers,
+  encodeMonochromeBmp,
+  IMAGE_HEIGHT,
+  IMAGE_WIDTH,
+  renderGame,
+} from './render';
 
 const TEXT_CONTAINER_ID = 1;
 const TEXT_CONTAINER_NAME = 'input';
 const IMAGE_CONTAINER_ID = 2;
 const IMAGE_CONTAINER_NAME = 'game';
 const TARGET_FRAME_MS = 200;
+const IS_MOBILE_WEBVIEW = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const USE_SIMULATOR_IMAGE_FORMAT = !IS_MOBILE_WEBVIEW;
 
 const bridge = await waitForEvenAppBridge();
 const game = createGameState();
@@ -32,7 +40,6 @@ const inputLayer = new TextContainerProperty({
   containerName: TEXT_CONTAINER_NAME,
   content: ' ',
   isEventCapture: 1,
-  zOrderIndex: 1,
 });
 
 const gameImage = new ImageContainerProperty({
@@ -42,7 +49,6 @@ const gameImage = new ImageContainerProperty({
   height: IMAGE_HEIGHT,
   containerID: IMAGE_CONTAINER_ID,
   containerName: IMAGE_CONTAINER_NAME,
-  zOrderIndex: 2,
 });
 
 const result = await bridge.createStartUpPageContainer(
@@ -55,6 +61,8 @@ const result = await bridge.createStartUpPageContainer(
 
 if (result !== 0) {
   console.error('createStartUpPageContainer failed:', result);
+} else {
+  console.log(`[Schmace] ready (${USE_SIMULATOR_IMAGE_FORMAT ? 'simulator BMP' : 'hardware gray4'})`);
 }
 
 let pendingFrame: Uint8Array | null = null;
@@ -129,11 +137,15 @@ async function drainFrameQueue(): Promise<void> {
   isSendingFrame = true;
 
   try {
+    const imageData = USE_SIMULATOR_IMAGE_FORMAT ? encodeMonochromeBmp(frame) : frame;
     const imageResult = await bridge.updateImageRawData(
       new ImageRawDataUpdate({
         containerID: IMAGE_CONTAINER_ID,
         containerName: IMAGE_CONTAINER_NAME,
-        imageData: frame,
+        // number[] is the SDK's preferred host-facing representation. Passing
+        // it explicitly also works with simulator/host versions that do not
+        // normalize typed arrays consistently.
+        imageData: Array.from(imageData),
       }),
     );
 

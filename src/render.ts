@@ -4,6 +4,8 @@ export const IMAGE_WIDTH = 256;
 export const IMAGE_HEIGHT = 144;
 export const FRAMEBUFFER_SIZE = GAME_WIDTH * GAME_HEIGHT;
 export const PACKED_FRAME_SIZE = (IMAGE_WIDTH * IMAGE_HEIGHT) / 2;
+const BMP_HEADER_SIZE = 62;
+const BMP_ROW_SIZE = IMAGE_WIDTH / 8;
 
 export type RenderBuffers = {
   logical: Uint8Array;
@@ -88,6 +90,48 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
 
   packToGray4(buffers.logical, buffers.packed);
   return buffers.packed;
+}
+
+// The simulator currently decodes updateImageRawData as a conventional image
+// file instead of accepting the raw gray4 format used by G2 hardware.
+export function encodeMonochromeBmp(packedGray4: Uint8Array): Uint8Array {
+  const pixelDataSize = BMP_ROW_SIZE * IMAGE_HEIGHT;
+  const bmp = new Uint8Array(BMP_HEADER_SIZE + pixelDataSize);
+  const view = new DataView(bmp.buffer);
+
+  bmp[0] = 0x42;
+  bmp[1] = 0x4d;
+  view.setUint32(2, bmp.length, true);
+  view.setUint32(10, BMP_HEADER_SIZE, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, IMAGE_WIDTH, true);
+  view.setInt32(22, IMAGE_HEIGHT, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 1, true);
+  view.setUint32(34, pixelDataSize, true);
+  view.setUint32(46, 2, true);
+
+  // BMP palette entries are BGRA. Index 0 is off; index 1 is fully lit.
+  bmp.set([0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00], 54);
+
+  for (let outputY = 0; outputY < IMAGE_HEIGHT; outputY++) {
+    const sourceY = IMAGE_HEIGHT - 1 - outputY;
+    const sourceRow = sourceY * (IMAGE_WIDTH / 2);
+    const outputRow = BMP_HEADER_SIZE + outputY * BMP_ROW_SIZE;
+
+    for (let byteX = 0; byteX < BMP_ROW_SIZE; byteX++) {
+      let pixels = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const pixelX = byteX * 8 + bit;
+        const gray4 = packedGray4[sourceRow + Math.floor(pixelX / 2)];
+        const isLit = pixelX % 2 === 0 ? (gray4 & 0xf0) !== 0 : (gray4 & 0x0f) !== 0;
+        if (isLit) pixels |= 0x80 >> bit;
+      }
+      bmp[outputRow + byteX] = pixels;
+    }
+  }
+
+  return bmp;
 }
 
 function drawHud(frame: Uint8Array, state: GameState): void {
