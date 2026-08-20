@@ -3,6 +3,8 @@ import { GAME_HEIGHT, GAME_WIDTH, PLAYER_Y, type Barrier, type GameState, type S
 export const IMAGE_WIDTH = 256;
 export const IMAGE_HEIGHT = 144;
 export const HUD_IMAGE_HEIGHT = 24;
+const GAMEPLAY_TOP = 19;
+const GAMEPLAY_HEIGHT = GAME_HEIGHT - GAMEPLAY_TOP;
 export const FRAMEBUFFER_SIZE = GAME_WIDTH * GAME_HEIGHT;
 export const PACKED_FRAME_SIZE = (IMAGE_WIDTH * IMAGE_HEIGHT) / 2;
 const HUD_FRAMEBUFFER_SIZE = IMAGE_WIDTH * HUD_IMAGE_HEIGHT;
@@ -97,7 +99,7 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
     }
   }
 
-  packToGray4(buffers.logical, buffers.packed);
+  packToGray4(buffers.logical, buffers.packed, GAMEPLAY_HEIGHT, IMAGE_HEIGHT, GAMEPLAY_TOP);
   return buffers.packed;
 }
 
@@ -273,11 +275,12 @@ function packToGray4(
   packed: Uint8Array,
   sourceHeight = GAME_HEIGHT,
   outputHeight = IMAGE_HEIGHT,
+  sourceTop = 0,
 ): void {
   let packedIndex = 0;
 
   for (let y = 0; y < outputHeight; y++) {
-    const sourceY = Math.floor((y * sourceHeight) / outputHeight);
+    const sourceY = sourceTop + Math.floor((y * sourceHeight) / outputHeight);
     const sourceRow = sourceY * GAME_WIDTH;
 
     for (let x = 0; x < IMAGE_WIDTH; x += 2) {

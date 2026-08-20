@@ -21,8 +21,10 @@ one-dimensional `Uint8Array`. Every entry is either off (`0`) or on (`1`), so
 the game stays two-color for better LZ4 compression in transit. Each frame is
 nearest-neighbor scaled into the SDK-supported 256 x 144 game image container.
 The score, lives, and level are rendered at 2x scale in a separate 256 x 24
-image directly above it, leaving the full game framebuffer available for play.
-Both images are packed into raw 4-bit grayscale bytes for
+image directly above it. The original HUD occupied logical rows 0–18, so the
+game image now scales only rows 19–223 into all 144 output rows. This enlarges
+the displayed playfield without changing its dimensions or simulation
+coordinates. Both images are packed into raw 4-bit grayscale bytes for
 `updateImageRawData`:
 
 ```text
