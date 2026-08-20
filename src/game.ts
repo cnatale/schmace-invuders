@@ -1,4 +1,11 @@
-export type GameMode = 'title' | 'playing' | 'waveClear' | 'gameOver' | 'exitConfirm';
+export type GameMode =
+  | 'title'
+  | 'playing'
+  | 'playerDestroyed'
+  | 'respawnBlack'
+  | 'waveClear'
+  | 'gameOver'
+  | 'exitConfirm';
 
 export type Shot = {
   x: number;
@@ -37,6 +44,7 @@ export type GameState = {
   alienDirection: -1 | 1;
   alienMoveClock: number;
   waveClearClock: number;
+  deathClock: number;
   frameClock: number;
   rngSeed: number;
 };
@@ -64,6 +72,10 @@ const BARRIER_HEIGHT = 9;
 const BARRIER_X_POSITIONS = [38, 92, 146, 200];
 const MAX_PLAYER_SHOTS = 1;
 const MAX_ALIEN_SHOTS = 3;
+export const DESTROYED_CYCLING_TICKS = 10;
+export const DESTROYED_FINAL_FRAME_TICKS = 3;
+const DESTROYED_TICKS = DESTROYED_CYCLING_TICKS + DESTROYED_FINAL_FRAME_TICKS;
+const RESPAWN_BLACK_TICKS = 8;
 
 export function createGameState(): GameState {
   return {
@@ -80,6 +92,7 @@ export function createGameState(): GameState {
     alienDirection: 1,
     alienMoveClock: 0,
     waveClearClock: 0,
+    deathClock: 0,
     frameClock: 0,
     rngSeed: 0x5eed,
   };
@@ -109,7 +122,7 @@ export function handleTap(state: GameState): void {
     return;
   }
 
-  firePlayerShot(state);
+  if (state.mode === 'playing') firePlayerShot(state);
 }
 
 export function movePlayer(state: GameState, direction: -1 | 1): void {
@@ -119,6 +132,21 @@ export function movePlayer(state: GameState, direction: -1 | 1): void {
 
 export function tickGame(state: GameState): void {
   state.frameClock++;
+
+  if (state.mode === 'playerDestroyed') {
+    state.deathClock--;
+    if (state.deathClock <= 0) {
+      state.mode = 'respawnBlack';
+      state.deathClock = RESPAWN_BLACK_TICKS;
+    }
+    return;
+  }
+
+  if (state.mode === 'respawnBlack') {
+    state.deathClock--;
+    if (state.deathClock <= 0) finishRespawn(state);
+    return;
+  }
 
   if (state.mode === 'waveClear') {
     state.waveClearClock--;
@@ -275,13 +303,21 @@ function checkPlayerHits(state: GameState): void {
   if (!hit) return;
 
   state.lives--;
+  state.mode = 'playerDestroyed';
+  state.deathClock = DESTROYED_TICKS;
+}
+
+function finishRespawn(state: GameState): void {
   state.playerShots = [];
   state.alienShots = [];
   state.playerX = Math.floor((GAME_WIDTH - PLAYER_WIDTH) / 2);
+  state.deathClock = 0;
 
   if (state.lives <= 0) {
     state.mode = 'gameOver';
     state.aliens = [];
+  } else {
+    state.mode = 'playing';
   }
 }
 

@@ -1,4 +1,13 @@
-import { GAME_HEIGHT, GAME_WIDTH, PLAYER_Y, type Barrier, type GameState, type Shot } from './game';
+import {
+  DESTROYED_CYCLING_TICKS,
+  DESTROYED_FINAL_FRAME_TICKS,
+  GAME_HEIGHT,
+  GAME_WIDTH,
+  PLAYER_Y,
+  type Barrier,
+  type GameState,
+  type Shot,
+} from './game';
 
 export const IMAGE_WIDTH = 256;
 export const IMAGE_HEIGHT = 144;
@@ -17,6 +26,11 @@ export type RenderBuffers = {
 };
 
 const PLAYER_SPRITE = ['0001000', '0011100', '0111110', '1111111', '1111111'];
+const DESTROYED_PLAYER_SPRITES = [
+  ['100000000000001', '001001000100100', '000010101010000', '010001010100010', '000101010101000'],
+  ['000100010001000', '100001101100001', '001010000010100', '000001101100000', '010100010001010'],
+  ['010000000000010', '000010000010000', '100000101000001', '000100000001000', '001000010000100'],
+];
 const ALIEN_SPRITES = [
   ['001100', '011110', '110011', '111111', '101101', '010010'],
   ['010010', '111111', '101101', '111111', '011110', '100001'],
@@ -102,9 +116,13 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
     drawCenteredText(buffers.logical, 'SWIPE OR TILT HEAD LEFT, RIGHT', 172, 2);
     drawCenteredText(buffers.logical, 'SHOOT: TAP OR TILT HEAD UP', 186, 2);
     drawBitmap(buffers.logical, SHIP_SPRITE, 122, 44, 2);
-  } else {
+  } else if (backdrop !== 'respawnBlack') {
     drawAliens(buffers.logical, state);
-    drawPlayer(buffers.logical, state.playerX);
+    if (backdrop === 'playerDestroyed') {
+      drawDestroyedPlayer(buffers.logical, state);
+    } else {
+      drawPlayer(buffers.logical, state.playerX);
+    }
     drawShots(buffers.logical, state.playerShots);
     drawShots(buffers.logical, state.alienShots);
     drawBarriers(buffers.logical, state.barriers);
@@ -222,6 +240,16 @@ function drawPlayer(frame: Uint8Array, playerX: number): void {
   const renderedX = Math.round(playerX);
   drawBitmap(frame, PLAYER_SPRITE, renderedX + 4, PLAYER_Y, 1);
   drawRect(frame, renderedX, PLAYER_Y + 5, 15, 3);
+}
+
+function drawDestroyedPlayer(frame: Uint8Array, state: GameState): void {
+  const frameIndex =
+    state.deathClock <= DESTROYED_FINAL_FRAME_TICKS
+      ? DESTROYED_PLAYER_SPRITES.length - 1
+      : (DESTROYED_CYCLING_TICKS + DESTROYED_FINAL_FRAME_TICKS - state.deathClock) %
+        DESTROYED_PLAYER_SPRITES.length;
+  const sprite = DESTROYED_PLAYER_SPRITES[frameIndex];
+  drawBitmap(frame, sprite, Math.round(state.playerX), PLAYER_Y, 1);
 }
 
 function drawShots(frame: Uint8Array, shots: Shot[]): void {
