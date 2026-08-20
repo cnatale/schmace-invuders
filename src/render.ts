@@ -63,7 +63,7 @@ export function createRenderBuffers(): RenderBuffers {
 
 export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array {
   buffers.logical.fill(0);
-  drawStars(buffers.logical, state);
+  // drawStars(buffers.logical, state);
   drawHud(buffers.logical, state);
 
   if (state.mode === 'title') {
