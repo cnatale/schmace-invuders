@@ -23,6 +23,7 @@ const SHIP_SPRITE = ['00111100', '01111110', '11011011', '11111111'];
 const FONT: Record<string, string[]> = {
   ' ': ['000', '000', '000', '000', '000'],
   ':': ['0', '1', '0', '1', '0'],
+  '|': ['1', '1', '1', '1', '1'],
   '0': ['111', '101', '101', '101', '111'],
   '1': ['010', '110', '010', '010', '111'],
   '2': ['111', '001', '111', '100', '111'],
@@ -136,7 +137,7 @@ export function encodeMonochromeBmp(packedGray4: Uint8Array): Uint8Array {
 
 function drawHud(frame: Uint8Array, state: GameState): void {
   drawText(frame, `SCORE:${state.score}`, 4, 5, 1);
-  drawText(frame, `LIVES:${state.lives}`, 100, 5, 1);
+  drawText(frame, `LIVES:${'|'.repeat(Math.max(0, state.lives))}`, 100, 5, 1);
   drawText(frame, `WAVE:${state.wave}`, 184, 5, 1);
   drawLine(frame, 0, 18, GAME_WIDTH - 1, 18);
 }
