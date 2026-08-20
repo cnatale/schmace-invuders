@@ -93,7 +93,6 @@ type PendingFrame = {
 let pendingFrame: PendingFrame | null = null;
 let displayedHudSignature = '';
 let isSendingFrame = false;
-let isPaused = false;
 let lastTick = performance.now();
 
 renderAndQueueFrame();
@@ -128,25 +127,33 @@ bridge.onEvenHubEvent((event) => {
       break;
 
     case OsEventTypeList.FOREGROUND_EXIT_EVENT:
-      isPaused = true;
+      // A native Even overlay (including the exit confirmation dialog) may
+      // temporarily take the foreground. It is not an app shutdown signal,
+      // so keep the page containers and image-send state intact.
       break;
 
     case OsEventTypeList.FOREGROUND_ENTER_EVENT:
-      isPaused = false;
       lastTick = performance.now();
-      renderAndQueueFrame();
+      resyncHud();
       break;
   }
 });
 
 function runGameLoop(timestamp: number): void {
-  if (!isPaused && timestamp - lastTick >= TARGET_FRAME_MS) {
+  if (timestamp - lastTick >= TARGET_FRAME_MS) {
     lastTick = timestamp;
     tickGame(game);
     renderAndQueueFrame();
   }
 
   requestAnimationFrame(runGameLoop);
+}
+
+function resyncHud(): void {
+  // Force both image containers to redraw after a native overlay is
+  // dismissed, even when the HUD values themselves have not changed.
+  displayedHudSignature = '';
+  renderAndQueueFrame();
 }
 
 function renderAndQueueFrame(): void {
