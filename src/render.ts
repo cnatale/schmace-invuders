@@ -1,4 +1,4 @@
-import { GAME_HEIGHT, GAME_WIDTH, PLAYER_Y, type GameState, type Shot } from './game';
+import { GAME_HEIGHT, GAME_WIDTH, PLAYER_Y, type Barrier, type GameState, type Shot } from './game';
 
 export const IMAGE_WIDTH = 256;
 export const IMAGE_HEIGHT = 144;
@@ -78,7 +78,7 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
     drawPlayer(buffers.logical, state.playerX);
     drawShots(buffers.logical, state.playerShots);
     drawShots(buffers.logical, state.alienShots);
-    drawBases(buffers.logical);
+    drawBarriers(buffers.logical, state.barriers);
 
     if (state.mode === 'waveClear') {
       drawCenteredText(buffers.logical, 'WAVE CLEAR', 101, 2);
@@ -156,20 +156,13 @@ function drawShots(frame: Uint8Array, shots: Shot[]): void {
   for (const shot of shots) drawRect(frame, shot.x, shot.y, shot.width, shot.height);
 }
 
-function drawBases(frame: Uint8Array): void {
-  for (const x of [38, 92, 146, 200]) {
-    drawRect(frame, x, 184, 22, 3);
-    drawRect(frame, x + 3, 181, 16, 3);
-    drawRect(frame, x + 8, 187, 6, 3, 0);
-  }
-}
-
-function drawStars(frame: Uint8Array, state: GameState): void {
-  const offset = state.mode === 'playing' ? state.score + state.wave * 11 : state.wave * 17;
-  for (let index = 0; index < 32; index++) {
-    const x = (index * 47 + offset) % GAME_WIDTH;
-    const y = 24 + ((index * 31 + offset * 3) % 150);
-    setPixel(frame, x, y);
+function drawBarriers(frame: Uint8Array, barriers: Barrier[]): void {
+  for (const barrier of barriers) {
+    for (let y = 0; y < barrier.height; y++) {
+      for (let x = 0; x < barrier.width; x++) {
+        if (barrier.pixels[y * barrier.width + x]) setPixel(frame, barrier.x + x, barrier.y + y);
+      }
+    }
   }
 }
 

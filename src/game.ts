@@ -15,6 +15,14 @@ export type Alien = {
   row: number;
 };
 
+export type Barrier = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  pixels: Uint8Array;
+};
+
 export type GameState = {
   mode: GameMode;
   score: number;
@@ -24,6 +32,7 @@ export type GameState = {
   playerShots: Shot[];
   alienShots: Shot[];
   aliens: Alien[];
+  barriers: Barrier[];
   alienDirection: -1 | 1;
   alienMoveClock: number;
   waveClearClock: number;
@@ -47,6 +56,10 @@ const ALIEN_Y_GAP = 14;
 const ALIEN_START_X = 38;
 const ALIEN_START_Y = 38;
 const BUNKER_Y = 178;
+const BARRIER_Y = 181;
+const BARRIER_WIDTH = 22;
+const BARRIER_HEIGHT = 9;
+const BARRIER_X_POSITIONS = [38, 92, 146, 200];
 const MAX_PLAYER_SHOTS = 1;
 const MAX_ALIEN_SHOTS = 3;
 
@@ -60,6 +73,7 @@ export function createGameState(): GameState {
     playerShots: [],
     alienShots: [],
     aliens: [],
+    barriers: [],
     alienDirection: 1,
     alienMoveClock: 0,
     waveClearClock: 0,
@@ -100,7 +114,10 @@ export function tickGame(state: GameState): void {
   updateAliens(state);
   maybeFireAlienShot(state);
   checkPlayerHits(state);
+  if (state.mode !== 'playing') return;
+
   checkAlienLanding(state);
+  if (state.mode !== 'playing') return;
 
   if (state.aliens.length === 0) {
     state.wave++;
@@ -127,6 +144,7 @@ function startWave(state: GameState): void {
   state.alienDirection = 1;
   state.alienMoveClock = 0;
   state.aliens = [];
+  state.barriers = createBarriers();
 
   for (let row = 0; row < ALIEN_ROWS; row++) {
     for (let column = 0; column < ALIEN_COLUMNS; column++) {
@@ -158,6 +176,8 @@ function updatePlayerShots(state: GameState): void {
     shot.y -= PLAYER_SHOT_SPEED;
     if (shot.y + shot.height < 0) continue;
 
+    if (damageBarrierAtShot(state.barriers, shot, -1)) continue;
+
     const hitIndex = state.aliens.findIndex((alien) => overlaps(shot, alien));
     if (hitIndex >= 0) {
       const [alien] = state.aliens.splice(hitIndex, 1);
@@ -172,9 +192,16 @@ function updatePlayerShots(state: GameState): void {
 }
 
 function updateAlienShots(state: GameState): void {
-  state.alienShots = state.alienShots
-    .map((shot) => ({ ...shot, y: shot.y + ALIEN_SHOT_SPEED }))
-    .filter((shot) => shot.y < GAME_HEIGHT);
+  const survivingShots: Shot[] = [];
+
+  for (const shot of state.alienShots) {
+    shot.y += ALIEN_SHOT_SPEED;
+    if (shot.y >= GAME_HEIGHT) continue;
+    if (damageBarrierAtShot(state.barriers, shot, 1)) continue;
+    survivingShots.push(shot);
+  }
+
+  state.alienShots = survivingShots;
 }
 
 function updateAliens(state: GameState): void {
@@ -244,6 +271,68 @@ function checkAlienLanding(state: GameState): void {
     state.playerShots = [];
     state.alienShots = [];
     state.aliens = [];
+  }
+}
+
+function createBarriers(): Barrier[] {
+  return BARRIER_X_POSITIONS.map((x) => {
+    const pixels = new Uint8Array(BARRIER_WIDTH * BARRIER_HEIGHT);
+
+    for (let y = 0; y < BARRIER_HEIGHT; y++) {
+      for (let x = 0; x < BARRIER_WIDTH; x++) {
+        const hasRoundedTop = y >= 3 || (x >= 3 && x < BARRIER_WIDTH - 3);
+        const isBottomNotch = y >= 6 && x >= 8 && x < 14;
+        if (hasRoundedTop && !isBottomNotch) pixels[y * BARRIER_WIDTH + x] = 1;
+      }
+    }
+
+    return { x, y: BARRIER_Y, width: BARRIER_WIDTH, height: BARRIER_HEIGHT, pixels };
+  });
+}
+
+function damageBarrierAtShot(barriers: Barrier[], shot: Shot, direction: -1 | 1): boolean {
+  for (const barrier of barriers) {
+    if (!overlaps(shot, barrier)) continue;
+
+    const minX = Math.max(shot.x, barrier.x);
+    const maxX = Math.min(shot.x + shot.width - 1, barrier.x + barrier.width - 1);
+    const minY = Math.max(shot.y, barrier.y);
+    const maxY = Math.min(shot.y + shot.height - 1, barrier.y + barrier.height - 1);
+    const startY = direction < 0 ? maxY : minY;
+    const endY = direction < 0 ? minY : maxY;
+
+    for (let y = startY; direction < 0 ? y >= endY : y <= endY; y += direction) {
+      for (let x = minX; x <= maxX; x++) {
+        const localX = x - barrier.x;
+        const localY = y - barrier.y;
+        if (barrier.pixels[localY * barrier.width + localX] === 0) continue;
+
+        carveBarrierCrater(barrier, localX, localY, direction);
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function carveBarrierCrater(barrier: Barrier, impactX: number, impactY: number, direction: -1 | 1): void {
+  // Arcade-style impacts make a narrow entry hole that fans out in the
+  // projectile's direction, allowing later shots through the same opening.
+  const rows = [
+    { offset: -1, radius: 1 },
+    { offset: 0, radius: 2 },
+    { offset: 1, radius: 3 },
+    { offset: 2, radius: 2 },
+  ];
+
+  for (const row of rows) {
+    const y = impactY + row.offset * direction;
+    if (y < 0 || y >= barrier.height) continue;
+
+    for (let x = impactX - row.radius; x <= impactX + row.radius; x++) {
+      if (x >= 0 && x < barrier.width) barrier.pixels[y * barrier.width + x] = 0;
+    }
   }
 }
 
