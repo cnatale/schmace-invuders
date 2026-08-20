@@ -5,6 +5,7 @@ import {
   ImageRawDataUpdate,
   ImageRawDataUpdateResult,
   CreateStartUpPageContainer,
+  ImuReportPace,
   OsEventTypeList,
 } from '@evenrealities/even_hub_sdk';
 
@@ -45,6 +46,15 @@ const SWIPE_RELEASE_GRACE_MS = 300;
 // the rest of the session.
 const HOST_CALL_TIMEOUT_MS = 2000;
 const FAILURES_BEFORE_WARNING = 10;
+const IMU_DEBUG = new URLSearchParams(window.location.search).has('imuDebug');
+const IMU_LOG_WINDOW_MS = 2000;
+const IMU_SMOOTHING = 0.35;
+const HEAD_CALIBRATION_SETTLE_MS = 350;
+const HEAD_CALIBRATION_DURATION_MS = 1200;
+const HEAD_TILT_ENTER = 0.3;
+const HEAD_TILT_EXIT = 0.18;
+const HEAD_UP_ENTER = 0.26;
+const HEAD_UP_EXIT = 0.14;
 
 const bridge = await waitForEvenAppBridge();
 const game = createGameState();
@@ -98,12 +108,19 @@ if (result !== 0) {
   console.error('createStartUpPageContainer failed:', result);
 } else {
   console.log(`[Schmace] ready (${USE_SIMULATOR_IMAGE_FORMAT ? 'simulator BMP' : 'hardware gray4'})`);
+  void startImu();
 }
 
 type PendingFrame = {
   game: Uint8Array;
   hud: Uint8Array | null;
   hudSignature: string;
+};
+
+type ImuVector = {
+  x: number;
+  y: number;
+  z: number;
 };
 
 let pendingFrame: PendingFrame | null = null;
@@ -113,13 +130,29 @@ let hasExited = false;
 let consecutiveSendFailures = 0;
 let hasReportedStalledImagePath = false;
 let lastTick = performance.now();
-let playerMoveDirection: -1 | 0 | 1 = 0;
+let swipeMoveDirection: -1 | 0 | 1 = 0;
+let headMoveDirection: -1 | 0 | 1 = 0;
 let swipeExpiresAt = 0;
+let smoothedImu: ImuVector | null = null;
+let headBaseline: ImuVector | null = null;
+let headCalibrationStartedAt = 0;
+let headCalibrationSampleCount = 0;
+let headCalibrationSum: ImuVector = { x: 0, y: 0, z: 0 };
+let headShotArmed = true;
+const imuCaptureStartedAt = performance.now();
+let imuLogWindowStartedAt = imuCaptureStartedAt;
+let imuSamples: Array<{ t: number; x: number; y: number; z: number }> = [];
 
 renderAndQueueFrame();
 requestAnimationFrame(runGameLoop);
 
 bridge.onEvenHubEvent((event) => {
+  const imu = event.sysEvent?.imuData;
+  if (event.sysEvent?.eventType === OsEventTypeList.IMU_DATA_REPORT && imu) {
+    recordImuSample(imu.x ?? 0, imu.y ?? 0, imu.z ?? 0);
+    return;
+  }
+
   const source = event.textEvent ?? event.sysEvent;
   if (!source) return;
 
@@ -139,8 +172,10 @@ bridge.onEvenHubEvent((event) => {
 
   switch (eventType) {
     case OsEventTypeList.CLICK_EVENT:
-      stopPlayerMovement();
+      stopSwipeMovement();
+      const modeBeforeTap = game.mode;
       handleTap(game);
+      if (modeBeforeTap !== 'playing' && game.mode === 'playing') beginHeadCalibration();
       renderAndQueueFrame();
       break;
 
@@ -177,15 +212,20 @@ bridge.onEvenHubEvent((event) => {
 });
 
 function updatePlayerMovement(direction: -1 | 1): void {
-  playerMoveDirection = direction;
+  swipeMoveDirection = direction;
   swipeExpiresAt = performance.now() + SWIPE_RELEASE_GRACE_MS;
   movePlayer(game, direction);
   renderAndQueueFrame();
 }
 
-function stopPlayerMovement(): void {
-  playerMoveDirection = 0;
+function stopSwipeMovement(): void {
+  swipeMoveDirection = 0;
   swipeExpiresAt = 0;
+}
+
+function stopPlayerMovement(): void {
+  stopSwipeMovement();
+  headMoveDirection = 0;
 }
 
 function isInputEvent(eventType: OsEventTypeList): boolean {
@@ -197,12 +237,161 @@ function isInputEvent(eventType: OsEventTypeList): boolean {
   );
 }
 
+async function startImu(): Promise<void> {
+  const result = await callHost('imuControl(true)', false, async () => {
+    await bridge.imuControl(true, ImuReportPace.P100);
+    return true;
+  });
+
+  if (result) {
+    console.log(`[Schmace IMU] streaming${IMU_DEBUG ? ' with debug capture enabled' : ''}`);
+  } else {
+    console.warn('[Schmace IMU] failed to start');
+  }
+}
+
+function recordImuSample(x: number, y: number, z: number): void {
+  processHeadControls(x, y, z);
+  if (!IMU_DEBUG) return;
+
+  const now = performance.now();
+  imuSamples.push({
+    t: Math.round(now - imuCaptureStartedAt),
+    x: roundImuValue(x),
+    y: roundImuValue(y),
+    z: roundImuValue(z),
+  });
+
+  if (now - imuLogWindowStartedAt < IMU_LOG_WINDOW_MS) return;
+
+  // One JSON array per window is easy to copy intact from WebView/Console Ninja
+  // logs and preserves the transient acceleration produced while turning.
+  console.log(`[Schmace IMU samples] ${JSON.stringify(imuSamples)}`);
+  void uploadImuSamples(imuSamples);
+  imuSamples = [];
+  imuLogWindowStartedAt = now;
+}
+
+function beginHeadCalibration(): void {
+  headMoveDirection = 0;
+  headShotArmed = true;
+  headBaseline = null;
+  smoothedImu = null;
+  headCalibrationStartedAt = performance.now();
+  headCalibrationSampleCount = 0;
+  headCalibrationSum = { x: 0, y: 0, z: 0 };
+  console.log('[Schmace IMU] hold your head straight');
+}
+
+function processHeadControls(x: number, y: number, z: number): void {
+  const magnitude = Math.hypot(x, y, z);
+  if (magnitude < 0.01) return;
+
+  const sample = { x: x / magnitude, y: y / magnitude, z: z / magnitude };
+  smoothedImu = smoothedImu
+    ? {
+        x: smoothImuAxis(smoothedImu.x, sample.x),
+        y: smoothImuAxis(smoothedImu.y, sample.y),
+        z: smoothImuAxis(smoothedImu.z, sample.z),
+      }
+    : sample;
+
+  if (headCalibrationStartedAt !== 0) {
+    updateHeadCalibration(smoothedImu);
+    return;
+  }
+
+  if (game.mode !== 'playing' || !headBaseline) {
+    headMoveDirection = 0;
+    return;
+  }
+
+  const pitchDelta = smoothedImu.x - headBaseline.x;
+  const tiltDelta = smoothedImu.y - headBaseline.y;
+
+  if (pitchDelta < HEAD_UP_EXIT) headShotArmed = true;
+  if (pitchDelta > HEAD_UP_ENTER) {
+    headMoveDirection = 0;
+    if (headShotArmed) {
+      headShotArmed = false;
+      handleTap(game);
+      renderAndQueueFrame();
+    }
+    return;
+  }
+
+  if (
+    (headMoveDirection === -1 && tiltDelta < -HEAD_TILT_EXIT) ||
+    (headMoveDirection === 1 && tiltDelta > HEAD_TILT_EXIT)
+  ) {
+    return;
+  }
+
+  if (tiltDelta < -HEAD_TILT_ENTER) {
+    headMoveDirection = -1;
+  } else if (tiltDelta > HEAD_TILT_ENTER) {
+    headMoveDirection = 1;
+  } else {
+    headMoveDirection = 0;
+  }
+}
+
+function updateHeadCalibration(sample: ImuVector): void {
+  const elapsed = performance.now() - headCalibrationStartedAt;
+  if (elapsed < HEAD_CALIBRATION_SETTLE_MS) return;
+
+  headCalibrationSum.x += sample.x;
+  headCalibrationSum.y += sample.y;
+  headCalibrationSum.z += sample.z;
+  headCalibrationSampleCount++;
+
+  if (elapsed < HEAD_CALIBRATION_DURATION_MS || headCalibrationSampleCount === 0) return;
+
+  headBaseline = {
+    x: headCalibrationSum.x / headCalibrationSampleCount,
+    y: headCalibrationSum.y / headCalibrationSampleCount,
+    z: headCalibrationSum.z / headCalibrationSampleCount,
+  };
+  headCalibrationStartedAt = 0;
+  console.log(
+    `[Schmace IMU] calibrated straight baseline ${JSON.stringify({
+      x: roundImuValue(headBaseline.x),
+      y: roundImuValue(headBaseline.y),
+      z: roundImuValue(headBaseline.z),
+    })}`,
+  );
+}
+
+function smoothImuAxis(previous: number, next: number): number {
+  return previous + (next - previous) * IMU_SMOOTHING;
+}
+
+async function uploadImuSamples(samples: typeof imuSamples): Promise<void> {
+  try {
+    await fetch('/__imu_capture', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(samples),
+    });
+  } catch {
+    // The capture endpoint only exists on the local Vite development server.
+  }
+}
+
+function roundImuValue(value: number): number {
+  return Math.round(value * 10_000) / 10_000;
+}
+
 // exitMode 0 quits immediately. exitMode 1 hands the foreground to the native
 // confirmation overlay, which permanently kills updateImageRawData on G2 even
 // when the user cancels (even-realities/everything-evenhub#18), so the game
 // draws its own prompt instead.
 async function exitApp(): Promise<void> {
   hasExited = true;
+  await callHost('imuControl(false)', false, async () => {
+    await bridge.imuControl(false);
+    return true;
+  });
   await callHost('shutDownPageContainer', false, () => bridge.shutDownPageContainer(0));
 }
 
@@ -211,14 +400,15 @@ function runGameLoop(timestamp: number): void {
 
   if (timestamp - lastTick >= TARGET_FRAME_MS) {
     lastTick = timestamp;
-    if (playerMoveDirection !== 0 && timestamp > swipeExpiresAt) stopPlayerMovement();
+    if (swipeMoveDirection !== 0 && timestamp > swipeExpiresAt) stopSwipeMovement();
 
     // Frames stop landing while a native overlay owns the display. Holding the
     // simulation until sends recover keeps the player from dying behind the
     // dialog without having to guess which lifecycle event means "overlay up".
     if (consecutiveSendFailures === 0) {
-      if (playerMoveDirection !== 0) {
-        movePlayer(game, playerMoveDirection);
+      const moveDirection = headMoveDirection || swipeMoveDirection;
+      if (moveDirection !== 0) {
+        movePlayer(game, moveDirection);
       }
       tickGame(game);
     }

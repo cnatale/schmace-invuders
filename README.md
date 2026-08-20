@@ -8,7 +8,41 @@ An Even Hub Space Invaders clone for the Even Realities G2 glasses.
 - Swipe up moves left continuously while swiping.
 - Swipe down moves right continuously while swiping.
 - Single tap fires while playing.
+- Tilting the left or right ear toward the shoulder moves the ship after a
+  short straight-ahead calibration at game start.
+- Looking up fires once; return to the straight-ahead pose to re-arm.
 - Double tap opens the system exit confirmation.
+
+## IMU data capture
+
+The G2 SDK exposes three-axis accelerometer samples, but it does not document
+the axis orientation or units. The head controls use empirically measured
+gravity-vector changes with smoothing and hysteresis. To log IMU data, start
+the Vite server with network access and add `?imuDebug=1` to the prototype URL:
+
+```bash
+npm run dev -- --host 0.0.0.0
+evenhub qr --url "http://192.168.x.x:5173/?imuDebug=1"
+```
+
+The app sends timestamped samples to the development server in two-second
+batches. They appear in the Vite terminal as
+`[Schmace IMU capture] [{"t":...,"x":...,"y":...,"z":...}]`. This endpoint is
+only installed by the local Vite development server; production builds do not
+receive or store the samples.
+
+On physical glasses, hold each pose for about three seconds in this order:
+
+1. Look straight ahead.
+2. Look left, then return to center.
+3. Look right, then return to center.
+4. Look up, then return to center.
+5. Tilt the left ear toward the left shoulder, then return to center.
+6. Tilt the right ear toward the right shoulder, then return to center.
+
+Copy every terminal line beginning with `[Schmace IMU capture]`, preserving the
+JSON arrays. A stationary accelerometer cannot measure held yaw, so movement
+uses gravity-relative head tilt rather than left/right gaze.
 
 ## Rendering
 
