@@ -12,6 +12,8 @@ An Even Hub Space Invaders clone for the Even Realities G2 glasses.
   short straight-ahead calibration at game start.
 - Looking up fires once; return to the straight-ahead pose to re-arm.
 - Double tap opens the system exit confirmation.
+- In the exit confirmation, single tap exits; swipe or double tap cancels and
+  returns to the game.
 
 ## IMU data capture
 
@@ -60,8 +62,8 @@ The score, lives, and level are rendered at 2x scale in a separate 256 x 24
 image directly above it. The original HUD occupied logical rows 0–18, so the
 game image now scales only rows 19–223 into all 144 output rows. This enlarges
 the displayed playfield without changing its dimensions or simulation
-coordinates. Both images are packed into raw 4-bit grayscale bytes for
-`updateImageRawData`:
+coordinates. For G2 hardware, both images are packed into raw 4-bit grayscale
+bytes for `updateImageRawData`:
 
 ```text
 logical pixel array: 256 * 224 bytes, values 0 or 1
@@ -71,12 +73,26 @@ packed byte:         high nibble = left pixel, low nibble = right pixel
 colors:              0x0 off, 0xF on
 ```
 
+Frames are built as `Uint8Array` values and converted to the SDK's preferred
+`number[]` representation at the host bridge. This conversion does not change
+the bytes sent or their compressibility. Although the game uses only two
+colors, the G2 raw image API expects Gray4 data; packing the framebuffer at one
+bit per pixel would only reduce hardware transfer size if the SDK and firmware
+exposed a corresponding 1-bit format. The simulator does accept a 1-bit image,
+so simulator frames are encoded as monochrome BMP files instead of raw Gray4.
+
 The loop is driven by `requestAnimationFrame` and throttled to a 10 FPS target.
 Image updates are sent sequentially because the Even Hub SDK does not allow
 concurrent image transfers. If BLE delivery falls behind the game loop, only
 the newest pending frame is retained.
 
 ## Setup
+
+Prerequisites:
+
+- Node.js 20.19 or newer, or Node.js 22.12 or newer
+- Even app 2.0.0 or newer
+- Even Hub CLI and simulator
 
 Install the project dependencies:
 
@@ -102,6 +118,20 @@ evenhub-simulator http://localhost:5173
 ```
 
 Edits are applied automatically through Vite's hot reload.
+
+## Production build
+
+Type-check the project and create a production build in `dist`:
+
+```bash
+npm run build
+```
+
+Serve the production build locally for a final browser check:
+
+```bash
+npm run preview
+```
 
 ## Test on G2 glasses
 
