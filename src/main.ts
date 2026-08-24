@@ -36,6 +36,7 @@ const IMAGE_CONTAINER_NAME = 'game';
 const HUD_CONTAINER_ID = 3;
 const HUD_CONTAINER_NAME = 'hud';
 const ENABLE_HUD = true;
+const ENABLE_IMU = true;
 const TARGET_FRAME_MS = 100;
 const IS_MOBILE_WEBVIEW = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const USE_SIMULATOR_IMAGE_FORMAT = !IS_MOBILE_WEBVIEW;
@@ -116,7 +117,7 @@ if (result !== 0) {
   console.error('createStartUpPageContainer failed:', result);
 } else {
   console.log(`[Schmace] ready (${USE_SIMULATOR_IMAGE_FORMAT ? 'simulator BMP' : 'hardware gray4'})`);
-  void startImu();
+  if (ENABLE_IMU) void startImu();
 }
 
 type PendingFrame = {
@@ -161,7 +162,7 @@ requestAnimationFrame(runGameLoop);
 bridge.onEvenHubEvent((event) => {
   const imu = event.sysEvent?.imuData;
   if (event.sysEvent?.eventType === OsEventTypeList.IMU_DATA_REPORT && imu) {
-    recordImuSample(imu.x ?? 0, imu.y ?? 0, imu.z ?? 0);
+    if (ENABLE_IMU) recordImuSample(imu.x ?? 0, imu.y ?? 0, imu.z ?? 0);
     return;
   }
 
@@ -187,7 +188,9 @@ bridge.onEvenHubEvent((event) => {
       stopSwipeMovement();
       const modeBeforeTap = game.mode;
       handleTap(game);
-      if (modeBeforeTap !== 'playing' && game.mode === 'playing') beginHeadCalibration();
+      if (ENABLE_IMU && modeBeforeTap !== 'playing' && game.mode === 'playing') {
+        beginHeadCalibration();
+      }
       renderAndQueueFrame();
       break;
 
@@ -392,7 +395,7 @@ function adaptBaselineAxis(previous: number, next: number): number {
 }
 
 function checkImuWatchdog(timestamp: number): void {
-  if (game.mode !== 'playing') return;
+  if (!ENABLE_IMU || game.mode !== 'playing') return;
 
   const latestActivity = Math.max(lastImuSampleAt, imuStreamStartedAt);
   const silenceMs = timestamp - latestActivity;
@@ -450,10 +453,12 @@ function roundImuValue(value: number): number {
 // draws its own prompt instead.
 async function exitApp(): Promise<void> {
   hasExited = true;
-  await callHost('imuControl(false)', false, async () => {
-    await bridge.imuControl(false);
-    return true;
-  });
+  if (ENABLE_IMU) {
+    await callHost('imuControl(false)', false, async () => {
+      await bridge.imuControl(false);
+      return true;
+    });
+  }
   await callHost('shutDownPageContainer', false, () => bridge.shutDownPageContainer(0));
 }
 
