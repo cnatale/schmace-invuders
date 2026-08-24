@@ -9,14 +9,15 @@ import {
   type Shot,
 } from './game';
 
-export const IMAGE_WIDTH = 256;
-export const IMAGE_HEIGHT = 144;
+export const IMAGE_WIDTH = 128;
+export const IMAGE_HEIGHT = 72;
+export const HUD_IMAGE_WIDTH = 256;
 export const HUD_IMAGE_HEIGHT = 24;
 const GAMEPLAY_TOP = 19;
 const GAMEPLAY_HEIGHT = GAME_HEIGHT - GAMEPLAY_TOP;
 export const FRAMEBUFFER_SIZE = GAME_WIDTH * GAME_HEIGHT;
 export const PACKED_FRAME_SIZE = (IMAGE_WIDTH * IMAGE_HEIGHT) / 2;
-const HUD_FRAMEBUFFER_SIZE = IMAGE_WIDTH * HUD_IMAGE_HEIGHT;
+const HUD_FRAMEBUFFER_SIZE = HUD_IMAGE_WIDTH * HUD_IMAGE_HEIGHT;
 const HUD_PACKED_FRAME_SIZE = HUD_FRAMEBUFFER_SIZE / 2;
 const BMP_HEADER_SIZE = 62;
 
@@ -139,7 +140,14 @@ export function renderGame(state: GameState, buffers: RenderBuffers): Uint8Array
 
   if (state.mode === 'exitConfirm') drawExitConfirm(buffers.logical);
 
-  packToGray4(buffers.logical, buffers.packed, GAMEPLAY_HEIGHT, IMAGE_HEIGHT, GAMEPLAY_TOP);
+  packToGray4(
+    buffers.logical,
+    buffers.packed,
+    GAMEPLAY_HEIGHT,
+    IMAGE_WIDTH,
+    IMAGE_HEIGHT,
+    GAMEPLAY_TOP,
+  );
   return buffers.packed;
 }
 
@@ -167,18 +175,24 @@ function drawExitConfirm(frame: Uint8Array): void {
 
 export function renderHud(state: GameState, buffers: RenderBuffers): Uint8Array {
   buffers.logical.fill(0);
-  drawText(buffers.logical, `SCORE:${state.score}`, 4, 7, 2, IMAGE_WIDTH, HUD_IMAGE_HEIGHT);
+  drawText(buffers.logical, `SCORE:${state.score}`, 4, 7, 2, HUD_IMAGE_WIDTH, HUD_IMAGE_HEIGHT);
   drawText(
     buffers.logical,
     `LIVES:${Math.max(0, state.lives)}`,
     96,
     7,
     2,
-    IMAGE_WIDTH,
+    HUD_IMAGE_WIDTH,
     HUD_IMAGE_HEIGHT,
   );
-  drawText(buffers.logical, `LEVEL:${state.wave}`, 188, 7, 2, IMAGE_WIDTH, HUD_IMAGE_HEIGHT);
-  packToGray4(buffers.logical, buffers.packed, HUD_IMAGE_HEIGHT, HUD_IMAGE_HEIGHT);
+  drawText(buffers.logical, `LEVEL:${state.wave}`, 188, 7, 2, HUD_IMAGE_WIDTH, HUD_IMAGE_HEIGHT);
+  packToGray4(
+    buffers.logical,
+    buffers.packed,
+    HUD_IMAGE_HEIGHT,
+    HUD_IMAGE_WIDTH,
+    HUD_IMAGE_HEIGHT,
+  );
   return buffers.packed;
 }
 
@@ -347,19 +361,56 @@ function packToGray4(
   logical: Uint8Array,
   packed: Uint8Array,
   sourceHeight = GAME_HEIGHT,
+  outputWidth = IMAGE_WIDTH,
   outputHeight = IMAGE_HEIGHT,
   sourceTop = 0,
 ): void {
   let packedIndex = 0;
 
   for (let y = 0; y < outputHeight; y++) {
-    const sourceY = sourceTop + Math.floor((y * sourceHeight) / outputHeight);
-    const sourceRow = sourceY * GAME_WIDTH;
+    const sourceYStart = sourceTop + Math.floor((y * sourceHeight) / outputHeight);
+    const sourceYEnd = sourceTop + Math.ceil(((y + 1) * sourceHeight) / outputHeight);
 
-    for (let x = 0; x < IMAGE_WIDTH; x += 2) {
-      const left = logical[sourceRow + x] ? 0xf0 : 0x00;
-      const right = logical[sourceRow + x + 1] ? 0x0f : 0x00;
+    for (let x = 0; x < outputWidth; x += 2) {
+      const left = sourceAreaIsLit(
+        logical,
+        x,
+        sourceYStart,
+        sourceYEnd,
+        outputWidth,
+      )
+        ? 0xf0
+        : 0x00;
+      const right = sourceAreaIsLit(
+        logical,
+        x + 1,
+        sourceYStart,
+        sourceYEnd,
+        outputWidth,
+      )
+        ? 0x0f
+        : 0x00;
       packed[packedIndex++] = left | right;
     }
   }
+}
+
+function sourceAreaIsLit(
+  logical: Uint8Array,
+  outputX: number,
+  sourceYStart: number,
+  sourceYEnd: number,
+  outputWidth: number,
+): boolean {
+  const sourceXStart = Math.floor((outputX * GAME_WIDTH) / outputWidth);
+  const sourceXEnd = Math.ceil(((outputX + 1) * GAME_WIDTH) / outputWidth);
+
+  for (let sourceY = sourceYStart; sourceY < sourceYEnd; sourceY++) {
+    const sourceRow = sourceY * GAME_WIDTH;
+    for (let sourceX = sourceXStart; sourceX < sourceXEnd; sourceX++) {
+      if (logical[sourceRow + sourceX]) return true;
+    }
+  }
+
+  return false;
 }

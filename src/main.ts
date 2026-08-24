@@ -23,6 +23,7 @@ import {
   createRenderBuffers,
   encodeMonochromeBmp,
   HUD_IMAGE_HEIGHT,
+  HUD_IMAGE_WIDTH,
   IMAGE_HEIGHT,
   IMAGE_WIDTH,
   renderGame,
@@ -85,19 +86,20 @@ const inputLayer = new TextContainerProperty({
 
 const contentHeight = IMAGE_HEIGHT + (ENABLE_HUD ? HUD_IMAGE_HEIGHT : 0);
 const contentTop = Math.floor((288 - contentHeight) / 2);
-const imageLeft = Math.floor((576 - IMAGE_WIDTH) / 2);
+const gameImageLeft = Math.floor((576 - IMAGE_WIDTH) / 2);
+const hudImageLeft = Math.floor((576 - HUD_IMAGE_WIDTH) / 2);
 
 const hudImage = new ImageContainerProperty({
-  xPosition: imageLeft,
+  xPosition: hudImageLeft,
   yPosition: contentTop,
-  width: IMAGE_WIDTH,
+  width: HUD_IMAGE_WIDTH,
   height: HUD_IMAGE_HEIGHT,
   containerID: HUD_CONTAINER_ID,
   containerName: HUD_CONTAINER_NAME,
 });
 
 const gameImage = new ImageContainerProperty({
-  xPosition: imageLeft,
+  xPosition: gameImageLeft,
   yPosition: contentTop + (ENABLE_HUD ? HUD_IMAGE_HEIGHT : 0),
   width: IMAGE_WIDTH,
   height: IMAGE_HEIGHT,
@@ -519,14 +521,30 @@ async function drainFrameQueue(): Promise<void> {
 
   try {
     if (frame.hud && frame.hudSignature !== displayedHudSignature) {
-      if (await sendImage(HUD_CONTAINER_ID, HUD_CONTAINER_NAME, frame.hud, HUD_IMAGE_HEIGHT)) {
+      if (
+        await sendImage(
+          HUD_CONTAINER_ID,
+          HUD_CONTAINER_NAME,
+          frame.hud,
+          HUD_IMAGE_WIDTH,
+          HUD_IMAGE_HEIGHT,
+        )
+      ) {
         displayedHudSignature = frame.hudSignature;
       } else {
         frameWasSent = false;
       }
     }
 
-    if (!(await sendImage(IMAGE_CONTAINER_ID, IMAGE_CONTAINER_NAME, frame.game, IMAGE_HEIGHT))) {
+    if (
+      !(await sendImage(
+        IMAGE_CONTAINER_ID,
+        IMAGE_CONTAINER_NAME,
+        frame.game,
+        IMAGE_WIDTH,
+        IMAGE_HEIGHT,
+      ))
+    ) {
       frameWasSent = false;
     }
   } finally {
@@ -557,10 +575,11 @@ async function sendImage(
   containerID: number,
   containerName: string,
   frame: Uint8Array,
+  width: number,
   height: number,
 ): Promise<boolean> {
   const imageData = USE_SIMULATOR_IMAGE_FORMAT
-    ? encodeMonochromeBmp(frame, IMAGE_WIDTH, height)
+    ? encodeMonochromeBmp(frame, width, height)
     : frame;
 
   const imageResult = await callHost(
