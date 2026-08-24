@@ -35,6 +35,7 @@ const IMAGE_CONTAINER_ID = 2;
 const IMAGE_CONTAINER_NAME = 'game';
 const HUD_CONTAINER_ID = 3;
 const HUD_CONTAINER_NAME = 'hud';
+const ENABLE_HUD = true;
 const TARGET_FRAME_MS = 100;
 const IS_MOBILE_WEBVIEW = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 const USE_SIMULATOR_IMAGE_FORMAT = !IS_MOBILE_WEBVIEW;
@@ -81,7 +82,7 @@ const inputLayer = new TextContainerProperty({
   isEventCapture: 1,
 });
 
-const contentHeight = HUD_IMAGE_HEIGHT + IMAGE_HEIGHT;
+const contentHeight = IMAGE_HEIGHT + (ENABLE_HUD ? HUD_IMAGE_HEIGHT : 0);
 const contentTop = Math.floor((288 - contentHeight) / 2);
 const imageLeft = Math.floor((576 - IMAGE_WIDTH) / 2);
 
@@ -96,7 +97,7 @@ const hudImage = new ImageContainerProperty({
 
 const gameImage = new ImageContainerProperty({
   xPosition: imageLeft,
-  yPosition: contentTop + HUD_IMAGE_HEIGHT,
+  yPosition: contentTop + (ENABLE_HUD ? HUD_IMAGE_HEIGHT : 0),
   width: IMAGE_WIDTH,
   height: IMAGE_HEIGHT,
   containerID: IMAGE_CONTAINER_ID,
@@ -105,9 +106,9 @@ const gameImage = new ImageContainerProperty({
 
 const result = await bridge.createStartUpPageContainer(
   new CreateStartUpPageContainer({
-    containerTotalNum: 3,
+    containerTotalNum: ENABLE_HUD ? 3 : 2,
     textObject: [inputLayer],
-    imageObject: [hudImage, gameImage],
+    imageObject: ENABLE_HUD ? [hudImage, gameImage] : [gameImage],
   }),
 );
 
@@ -493,7 +494,10 @@ function renderAndQueueFrame(): void {
   const hudSignature = `${game.score}:${game.lives}:${game.wave}`;
   pendingFrame = {
     game: renderGame(game, buffers).slice(),
-    hud: hudSignature === displayedHudSignature ? null : renderHud(game, hudBuffers).slice(),
+    hud:
+      ENABLE_HUD && hudSignature !== displayedHudSignature
+        ? renderHud(game, hudBuffers).slice()
+        : null,
     hudSignature,
   };
   void drainFrameQueue();
